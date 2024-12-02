@@ -10,6 +10,8 @@ data Name a
 
 data Type a
     = TVar a (Name a)
+    | TPar a (Type a)
+    | TApp a (Type a)
     | TUnit a
     | TList a (Type a)
     | TArrow a (Type a) (Type a)
@@ -20,7 +22,8 @@ data Argument a
     deriving (Foldable, Show)
 
 data Dec a
-    = Dec a (Name a) [Argument a] (Maybe (Type a)) (Expr a)
+    = Dec a (Name a) [Argument a] (Expr a)
+    | DecAnno a (Name a) (Type a)
     deriving (Foldable, Show)
 
 data Expr a

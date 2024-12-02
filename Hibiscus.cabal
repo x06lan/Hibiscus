@@ -17,6 +17,7 @@ library
   exposed-modules:
       Ast
       Lexer
+      Main
       Parser
   other-modules:
       Paths_Hibiscus

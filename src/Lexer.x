@@ -71,7 +71,7 @@ tokens :-
 <0> "]"     { tok RBrack }
 <0> ","     { tok Comma }
 
-<0> ":"     { tok Colon }
+<0> "::"    { tok DoubleColon }
 <0> "->"    { tok Arrow }
 
 <0> @id     { tokId }
@@ -151,7 +151,7 @@ data Token
   | LBrack
   | RBrack
   -- type
-  | Colon
+  | DoubleColon
   | Arrow
   -- eof
   | EOF
