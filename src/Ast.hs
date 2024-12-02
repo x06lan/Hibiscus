@@ -28,6 +28,7 @@ data Dec a
 
 data Expr a
     = EInt a Integer
+    | EFloat a Float
     | EVar a (Name a)
     | EString a ByteString
     | EUnit a
