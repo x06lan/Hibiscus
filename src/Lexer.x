@@ -77,6 +77,7 @@ tokens :-
 <0> @id     { tokId }
 
 <0> $digit+ { tokInteger }
+<0> \"[^\"]*\" { tokString }
 
 {
 -- At the bottom, we may insert more Haskell definitions, such as data structures, auxiliary functions, etc.
@@ -179,6 +180,13 @@ tokInteger :: AlexAction RangedToken
 tokInteger inp@(_, _, str, _) len =
   pure RangedToken
     { rtToken = Integer $ read $ BS.unpack $ BS.take len str
+    , rtRange = mkRange inp len
+    }
+
+tokString :: AlexAction RangedToken
+tokString inp@(_, _, str, _) len =
+  pure RangedToken
+    { rtToken = String $ BS.take len str
     , rtRange = mkRange inp len
     }
 

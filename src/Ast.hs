@@ -10,6 +10,9 @@ data Name a
 
 data Type a
     = TVar a (Name a)
+    | TUnit a
+    | TList a (Type a)
+    | TArrow a (Type a) (Type a)
     deriving (Foldable, Show)
 
 data Argument a
@@ -24,4 +27,28 @@ data Expr a
     = EInt a Integer
     | EVar a (Name a)
     | EString a ByteString
+    | EUnit a
+    | EList a [Expr a]
+    | EPar a (Expr a)
+    | EApp a (Expr a) (Expr a)
+    | EIfThenElse a (Expr a) (Expr a) (Expr a)
+    | ENeg a (Expr a)
+    | EBinOp a (Expr a) (Op a) (Expr a)
+    | EOp a (Op a)
+    | ELetIn a (Dec a) (Expr a)
+    deriving (Foldable, Show)
+
+data Op a
+    = Plus a
+    | Minus a
+    | Times a
+    | Divide a
+    | Eq a
+    | Neq a
+    | Lt a
+    | Le a
+    | Gt a
+    | Ge a
+    | And a
+    | Or a
     deriving (Foldable, Show)

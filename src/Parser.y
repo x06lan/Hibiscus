@@ -13,7 +13,7 @@ import qualified Lexer as L
 import Ast
 }
 
-%name parseMiniML dec
+%name parseMiniML decs
 %tokentype { L.RangedToken }
 %error { parseError }
 %monad { L.Alex } { >>= } { pure }
@@ -48,15 +48,48 @@ import Ast
   ':'         { L.RangedToken L.Colon _ }
   '->'        { L.RangedToken L.Arrow _ }
 
+%right '->'
+%left '|'
+%left '&'
+%nonassoc '=' '<>' '<' '>' '<=' '>='
+%left '+' '-'
+%left '*' '/'
+
 %%
+
+optional(p)
+  :   { Nothing }
+  | p { Just $1 }
+
+many_rev(p)
+  :               { [] }
+  | many_rev(p) p { $2 : $1 }
+
+many(p)
+  : many_rev(p) { reverse $1 }
 
 name :: { Name L.Range }
   : identifier { unTok $1 (\range (L.Identifier name) -> Name range name) }
 
-dec
-  : let name '=' exp { Dec (L.rtRange $1 <-> info $4) $2 [] Nothing $4 }
+type :: { Type L.Range }
+  : name            { TVar (info $1) $1 }
+  | '(' ')'         { TUnit (L.rtRange $1 <-> L.rtRange $2) }
+  | '[' type ']'    { TList (L.rtRange $1 <-> L.rtRange $3) $2 }
+  | type '->' type  { TArrow (info $1 <-> info $3) $1 $3 }
 
-exp :: { Expr L.Range }
+typeAnnotation :: { Type L.Range }
+  : ':' type { $2 }
+
+argument :: { Argument L.Range }
+  : name { Argument (info $1) $1 Nothing }
+
+dec
+  : let name many(argument) optional(typeAnnotation) '=' expr { Dec (L.rtRange $1 <-> info $6) $2 $3 $4 $6 }
+
+decs
+  : many(dec) { $1 }
+
+expr :: { Expr L.Range }
   : integer   { unTok $1 (\range (L.Integer int) -> EInt range int) }
   | name      { EVar (info $1) $1 }
   | string    { unTok $1 (\range (L.String string) -> EString range string) }
