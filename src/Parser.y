@@ -18,7 +18,7 @@ import Ast
 %error { parseError }
 %monad { L.Alex } { >>= } { pure }
 %lexer { lexer } { L.RangedToken L.EOF _ }
-%expect 0
+%expect 1 -- FIX: idk why there is a shift/reduce conflict
 
 %token
   identifier  { L.RangedToken (L.Identifier _) _ }
@@ -90,15 +90,14 @@ type :: { Type L.Range }
 argument :: { Argument L.Range }
   : name { Argument (info $1) $1 Nothing }
 
-dec
+dec :: { Dec L.Range }
   : name many(argument) '=' expr  { Dec (info $1 <-> info $4) $1 $2 $4 }
   | name '::' type                { DecAnno (info $1 <-> info $3) $1 $3 }
-  | let dec in expr               { ELetIn (L.rtRange $1 <-> info $4) $2 $4 }
 
-decs
+decs :: { [Dec L.Range] }
   : many(dec) { $1 }
 
-expr :: {Expr L.Range }
+expr :: { Expr L.Range }
   : exprapp             { $1 }
   | exprcond            { $1 }
   | '-' expr            { ENeg (L.rtRange $1 <-> info $2) $2 }
@@ -117,6 +116,7 @@ expr :: {Expr L.Range }
   -- Logical operators
   | expr '&'  expr      { EBinOp (info $1 <-> info $3) $1 (And (L.rtRange $2)) $3 }
   | expr '|'  expr      { EBinOp (info $1 <-> info $3) $1 (Or (L.rtRange $2)) $3 }
+  | let dec in expr     { ELetIn (L.rtRange $1 <-> info $4) $2 $4 }
 
 exprapp :: { Expr L.Range }
   : exprapp atom  { EApp (info $1 <-> info $2) $1 $2 }
