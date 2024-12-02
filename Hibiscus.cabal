@@ -33,4 +33,4 @@ Test-Suite test-bar
     type:           exitcode-stdio-1.0
     hs-source-dirs: test
     main-is:        test-bar.hs
-    build-depends:  base, containers
+    build-depends:  base, containers, mtl

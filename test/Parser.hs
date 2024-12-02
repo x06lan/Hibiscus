@@ -33,6 +33,7 @@ data Type a
   | TUnit a
   | TList a (Type a)
   | TArrow a (Type a) (Type a)
+  | TLit String
   deriving (Foldable, Show)
 
 data Argument a
