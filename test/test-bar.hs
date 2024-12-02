@@ -59,27 +59,28 @@ test = Right
 
 -- type TyEnv a = Map String (Type a)
 
-type TyEnv a = [(String, Type a)]
+type TyEnv a = [(Name a, Type a)]
 --lookup = undefined
 
 -- chatGPT gens
 
 type Subst a = [(String, Type a)]  -- Substitution map
 
-unify :: Type a -> Type a -> Either String (Subst a)
-unify = undefined
---unify t1 t2 = case (t1, t2) of
---    (TInt, TInt) -> return []
---    (TBool, TBool) -> return []
---    (TVar v, t) -> bind v t
---    (t, TVar v) -> bind v t
---    (TFun l1 r1, TFun l2 r2) -> do
---        s1 <- unify l1 l2
---        s2 <- unify (applySubst s1 r1) (applySubst s1 r2)
---        return (s1 ++ s2)
---    _ -> Left $ "Cannot unify " ++ show t1 ++ " with " ++ show t2
---  where
---    bind :: String -> Type -> Either String Subst
+unify :: Show a => Type a -> Type a -> Either String (Subst a)
+unify t1 t2
+  | t1 == t2 = return []
+  | otherwise =
+    case (t1, t2) of
+      (TVar _ n, t) -> bind n t
+      (t, TVar _ n) -> bind n t
+      (TArrow _ l1 r1, TArrow _ l2 r2) -> do
+          s1 <- unify l1 l2
+          s2 <- unify (applySubst s1 r1) (applySubst s1 r2)
+          return (s1 ++ s2)
+      _ -> Left $ "Cannot unify " ++ show t1 ++ " with " ++ show t2
+  where
+    bind :: Name a -> Type a -> Either String (Subst a)
+    bind = undefined
 --    bind v t
 --        | t == TVar v = return []
 --        | v `occursIn` t = Left $ "Occurs check failed: " ++ v ++ " in " ++ show t
@@ -103,21 +104,46 @@ freshTypeVar = undefined
 applySubstEnv = undefined
 applySubst = undefined
 
-typeInfer :: TyEnv a -> Exp a -> Either String (Subst a, Type a)
+-- get new type symbol
+newST = undefined
+
+
+typeInfer :: Show a => TyEnv a -> Exp a -> Either String (Subst a, Type a)
 typeInfer env expr_ = case expr_ of
-    ELetIn _ (Dec _ _ _ _ _) exp -> undefined
-    EVar _ (Name _ x) -> case lookup x env of
+    EVar _ name@(Name _ x) -> case lookup name env of
         Just t -> return ([], t)
         Nothing -> Left $ "Unbound variable: " ++ x
+    ELetIn _ (Dec _ name args maybetype decexp) exp ->
+      let
+        aux arg = case arg of
+          (Argument a n Nothing)  -> (n, TVar a n)
+          (Argument _ n (Just t)) -> (n, t)
+      in let
+        argenv = foldl (\e a -> e ++ [aux a]) env args
+      in do
+        (s1, t1) <- typeInfer argenv decexp
+        (s2, t2) <- typeInfer (env ++ [(name, t1)]) exp
+	return (s1 ++ s2, t2)
     EApp _ f x -> do
-        (s1, t1) <- typeInfer env f
-        (s2, t2) <- typeInfer (applySubstEnv s1 env) x
-        tv <- undefined
-        s3 <- unify (applySubst s2 t1) (TArrow undefined t2 tv)
+        -- tf = tx -> tv
+        (s1, tf) <- typeInfer env f
+        (s2, tx) <- typeInfer (applySubstEnv s1 env) x
+        tv <- undefined -- TODO: get new type var
+        s3 <- unify (applySubst s2 tf) (TArrow undefined tx tv)
         return (s3 ++ s2 ++ s1, applySubst s3 tv)
     EInt _ _ -> return ([], TLit "int")
     EPar _ exp -> typeInfer env exp
+    EUnit a -> return ([], TUnit a)
     _ -> Left "WIP: unsupported structure"
+
+--
+
+typeCheck :: [Dec a] -> Either String ()
+typeCheck decs_ = undefined
+  where
+    aux (Dec a n _ Nothing _)  = (n, TVar a n)
+    aux (Dec _ n _ (Just t) _) = (n, t)
+    scanTopLevel = foldl (\e d -> e ++ [aux d] [] decs_
 
 main = do
   return ()

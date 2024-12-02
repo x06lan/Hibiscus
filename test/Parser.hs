@@ -27,6 +27,9 @@ data Name a
   = Name a ByteString
   deriving (Foldable, Show)
 
+instance Eq (Name a) where
+  (Name _ x) == (Name _ y) = x == y
+
 data Type a
   = TVar a (Name a)
   | TPar a (Type a)
@@ -35,6 +38,9 @@ data Type a
   | TArrow a (Type a) (Type a)
   | TLit String
   deriving (Foldable, Show)
+
+instance Eq (Type a) where
+  t1 == t2 = undefined
 
 data Argument a
   = Argument a (Name a) (Maybe (Type a))
