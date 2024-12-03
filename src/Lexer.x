@@ -1,216 +1,215 @@
 -- vim: set ft=haskell
 
 {
-{-# OPTIONS -w #-} -- suppress millions of Alex warnings
-module Lexer where
--- You shouldn't be importing this module; everything you need is in Parser
+-- At the top of the file, we define the module and its imports, similarly to Haskell.
+module Lexer
+  ( -- * Invoking Alex
+    Alex
+  , AlexPosn (..)
+  , alexGetInput
+  , alexError
+  , runAlex
+  , alexMonadScan
 
-import qualified Data.ByteString.Lazy.Char8 as ByteString
+  , Range (..)
+  , RangedToken (..)
+  , Token (..)
+  ) where
 
-import Representation
+import Data.ByteString.Lazy.Char8 (ByteString)
+import qualified Data.ByteString.Lazy.Char8 as BS
+import Control.Monad (when)
 }
+-- In the middle, we insert our definitions for the lexer, which will generate the lexemes for our grammar.
+%wrapper "monadUserState-bytestring"
 
+$digit = [0-9]
+$alpha = [a-zA-Z]
 
--- Character sets.
-$d = [0-9]
-$s = [\ \t\n\f\v\r]
+-- identifier regex
+-- beginning with $alpha or _ and followed with other stuff
+@id = ($alpha | \_) ($alpha | $digit | \_ | \' | \?)*
 
--- Regex macros.
-@ident = [a-z _] [a-z A-Z $d _ ']*
-@Ident = [A-Z _] [a-z A-Z $d _ ']*
-
-
--- Token rules.
 tokens :-
-  
-  $s+                       ; -- ignore whitespace
-  "%" .*                    ; -- ignore comments (upto newline)
-  
-  "Bool"                    { \ (_, _, bs) len -> return $ TOK_BOOL }
-  "Real"                    { \ (_, _, bs) len -> return $ TOK_REAL }
-  
-  "Tex"                     { \ (_, _, bs) len -> return $ TOK_TEX }
-  "1D"                      { \ (_, _, bs) len -> return $ TOK_TEXKIND1D }
-  "2D"                      { \ (_, _, bs) len -> return $ TOK_TEXKIND2D }
-  "3D"                      { \ (_, _, bs) len -> return $ TOK_TEXKIND3D }
-  "Cube"                    { \ (_, _, bs) len -> return $ TOK_TEXKINDCUBE }
-  
-  "True"                    { \ (_, _, bs) len -> return $ TOK_LITERAL_BOOL True }
-  "False"                   { \ (_, _, bs) len -> return $ TOK_LITERAL_BOOL False }
-  "-"? $d+                  { \ (_, _, bs) len -> return $ TOK_LITERAL_INT (let Just (i, _) = ByteString.readInteger $ ByteString.take (fromIntegral len) bs in i) }
-  "-"? $d+ "." $d+          { \ (_, _, bs) len -> return $ TOK_LITERAL_FLOAT (read (ByteString.unpack $ ByteString.take (fromIntegral len) bs) :: Double) }
-  
-  ","                       { \ (_, _, bs) len -> return $ TOK_COMMA }
-  ".."                      { \ (_, _, bs) len -> return $ TOK_RANGE_DOTS }
-  "["                       { \ (_, _, bs) len -> return $ TOK_LBRACKET }
-  "]"                       { \ (_, _, bs) len -> return $ TOK_RBRACKET }
-  "("                       { \ (_, _, bs) len -> return $ TOK_LPAREN }
-  ")"                       { \ (_, _, bs) len -> return $ TOK_RPAREN }
-  "`"                       { \ (_, _, bs) len -> return $ TOK_BACKTICK }
-  "_"                       { \ (_, _, bs) len -> return $ TOK_WILDCARD }
-  
-  "!"                       { \ (_, _, bs) len -> return $ TOK_OP_SUBSCRIPT }
-  "!!"                      { \ (_, _, bs) len -> return $ TOK_OP_SWIZZLE }
-  "+"                       { \ (_, _, bs) len -> return $ TOK_OP_SCALAR_ADD }
-  "-"                       { \ (_, _, bs) len -> return $ TOK_OP_SCALAR_NEG_OP_SCALAR_SUB }
-  "*"                       { \ (_, _, bs) len -> return $ TOK_OP_SCALAR_MUL }
-  "/"                       { \ (_, _, bs) len -> return $ TOK_OP_SCALAR_DIV }
-  "++"                      { \ (_, _, bs) len -> return $ TOK_OP_VECTOR_ADD }
-  "--"                      { \ (_, _, bs) len -> return $ TOK_OP_VECTOR_NEG_OP_VECTOR_SUB }
-  "**"                      { \ (_, _, bs) len -> return $ TOK_OP_VECTOR_MUL }
-  "//"                      { \ (_, _, bs) len -> return $ TOK_OP_VECTOR_DIV }
-  "**."                     { \ (_, _, bs) len -> return $ TOK_OP_VECTOR_SCALAR_MUL }
-  "//."                     { \ (_, _, bs) len -> return $ TOK_OP_VECTOR_SCALAR_DIV }
-  "#"                       { \ (_, _, bs) len -> return $ TOK_OP_MATRIX_MATRIX_LINEAR_MUL }
-  "#."                      { \ (_, _, bs) len -> return $ TOK_OP_MATRIX_VECTOR_LINEAR_MUL }
-  ".#"                      { \ (_, _, bs) len -> return $ TOK_OP_VECTOR_MATRIX_LINEAR_MUL }
-  "<"                       { \ (_, _, bs) len -> return $ TOK_OP_LT }
-  ">"                       { \ (_, _, bs) len -> return $ TOK_OP_GT }
-  "<="                      { \ (_, _, bs) len -> return $ TOK_OP_LTE }
-  ">="                      { \ (_, _, bs) len -> return $ TOK_OP_GTE }
-  "=="                      { \ (_, _, bs) len -> return $ TOK_OP_EQ }
-  "/="                      { \ (_, _, bs) len -> return $ TOK_OP_NEQ }
-  "&&"                      { \ (_, _, bs) len -> return $ TOK_OP_AND }
-  "||"                      { \ (_, _, bs) len -> return $ TOK_OP_OR }
-  "$"                       { \ (_, _, bs) len -> return $ TOK_OP_APPLY }
-  "."                       { \ (_, _, bs) len -> return $ TOK_OP_COMPOSE }
-  
-  "if"                      { \ (_, _, bs) len -> return $ TOK_IF }
-  "then"                    { \ (_, _, bs) len -> return $ TOK_THEN }
-  "else"                    { \ (_, _, bs) len -> return $ TOK_ELSE }
-  "let"                     { \ (_, _, bs) len -> return $ TOK_LET }
-  "="                       { \ (_, _, bs) len -> return $ TOK_EQUALS }
-  "in"                      { \ (_, _, bs) len -> return $ TOK_IN }
-  
-  "::"                      { \ (_, _, bs) len -> return $ TOK_TYPESPECIFIER }
-  "->"                      { \ (_, _, bs) len -> return $ TOK_RARROW }
-  "\"                       { \ (_, _, bs) len -> return $ TOK_LAMBDA }
-  
-  -- this goes last as it should not take precedence over the keywords
-  @ident                    { \ (_, _, bs) len -> return $ TOK_IDENTIFIER $ ByteString.unpack $ ByteString.take (fromIntegral len) bs }
-  @Ident                    { \ (_, _, bs) len -> do pos <- getLineColP; failP $ LexerError pos $ LexerErrorIdentBeginsUpper $ ByteString.unpack $ ByteString.take (fromIntegral len) bs }
 
+<0> $white+ ; -- ignore all white spaces
+
+-- change to haskell-like comments
+<0>       "--" .* ;
+<0>       "{-"  { nestComment `andBegin` comment }
+<0>       "-}"  { \_ _ -> alexError "error: unexpected closing comment" }
+<comment> "{-"  { nestComment }
+<comment> "-}"  { unnestComment }
+<comment> .     ;
+<comment> \n    ;
+
+<0> let     { tok Let }
+<0> in      { tok In }
+<0> if      { tok If }
+<0> then    { tok Then }
+<0> else    { tok Else }
+
+<0> "+"     { tok Plus }
+<0> "-"     { tok Minus }
+<0> "*"     { tok Times }
+<0> "/"     { tok Divide }
+
+<0> "="     { tok Eq }
+<0> "<>"    { tok Neq }
+<0> "<"     { tok Lt }
+<0> "<="    { tok Le }
+<0> ">"     { tok Gt }
+<0> ">="    { tok Ge }
+
+<0> "&"     { tok And }
+<0> "|"     { tok Or }
+
+<0> "("     { tok LPar }
+<0> ")"     { tok RPar }
+
+<0> "["     { tok LBrack }
+<0> "]"     { tok RBrack }
+<0> ","     { tok Comma }
+
+<0> "::"    { tok DoubleColon }
+<0> "->"    { tok Arrow }
+
+<0> @id     { tokId }
+
+<0> $digit+ { tokInt }
+<0> $digit+\.$digit+ { tokFloat }
+<0> \"[^\"]*\" { tokString }
 
 {
-data AlexPos
-  = AlexPos
-    !Int -- address (number of characters preceding the token)
-    !Int -- line number
-    !Int -- column number (assuming alexTabSize)
-  deriving (Eq,Show)
+-- At the bottom, we may insert more Haskell definitions, such as data structures, auxiliary functions, etc.
+data AlexUserState = AlexUserState
+  { nestLevel :: Int
+  }
 
-alexTabSize :: Int
-alexTabSize = 2
+alexInitUserState :: AlexUserState
+alexInitUserState = AlexUserState
+  { nestLevel = 0
+  }
 
-type AlexInput
-  = (
-    AlexPos, -- current position
-    Char, -- previous char
-    ByteString.ByteString -- current input string
-  )
+get :: Alex AlexUserState
+get = Alex $ \s -> Right (s, alex_ust s)
 
-alexInputPrevChar :: AlexInput -> Char
-alexInputPrevChar (p,c,s) = c
+put :: AlexUserState -> Alex ()
+put s' = Alex $ \s -> Right (s{alex_ust = s'}, ())
 
-alexGetChar :: AlexInput -> Maybe (Char,AlexInput)
-alexGetChar (p,_,cs) | ByteString.null cs = Nothing
-                     | otherwise = let c   = ByteString.head cs
-                                       cs' = ByteString.tail cs
-                                       p'  = alexMove p c
-                                    in p' `seq` cs' `seq` Just (c, (p', c, cs'))
+modify :: (AlexUserState -> AlexUserState) -> Alex ()
+modify f = Alex $ \s -> Right (s{alex_ust = f (alex_ust s)}, ())
 
-alexStartPos :: AlexPos
-alexStartPos = AlexPos 0 1 1
+alexEOF :: Alex RangedToken
+alexEOF = do
+  startCode <- alexGetStartCode
+  when (startCode == comment) $
+    alexError "error: unclosed comment"
+  (pos, _, _, _) <- alexGetInput
+  pure $ RangedToken EOF (Range pos pos)
 
-alexStartCode :: Int
-alexStartCode = 0
+data Range = Range
+  { start :: AlexPosn
+  , stop :: AlexPosn
+  } deriving (Eq, Show)
 
-alexStartChr :: Char
-alexStartChr = '\n'
+data RangedToken = RangedToken
+  { rtToken :: Token
+  , rtRange :: Range
+  } deriving (Eq, Show)
 
-alexMove :: AlexPos -> Char -> AlexPos
-alexMove (AlexPos a l c) '\t' = AlexPos (a+1)  l     (((c+alexTabSize-1) `div` alexTabSize)*alexTabSize+1)
-alexMove (AlexPos a l c) '\n' = AlexPos (a+1) (l+1)   1
-alexMove (AlexPos a l c) _    = AlexPos (a+1)  l     (c+1)
+data Token
+  = Identifier ByteString
+  -- const
+  | String ByteString
+  | Int Int
+  | Float Float
+  -- keyword
+  | Let
+  | In
+  | If
+  | Then
+  | Else
+  -- arith
+  | Plus
+  | Minus
+  | Times
+  | Divide
+  -- comp
+  | Eq
+  | Neq
+  | Lt
+  | Le
+  | Gt
+  | Ge
+  -- logic
+  | And
+  | Or
+  -- paren
+  | LPar
+  | RPar
+  -- list
+  | Comma
+  | LBrack
+  | RBrack
+  -- type
+  | DoubleColon
+  | Arrow
+  -- eof
+  | EOF
+  deriving (Eq, Show)
 
+mkRange :: AlexInput -> Int64 -> Range
+mkRange (start, _, str, _) len = Range{start = start, stop = stop}
+  where
+    stop = BS.foldl' alexMove start $ BS.take len str
 
--- The parser state.
-data PState
-  = PState
-    {
-      alex_inp :: AlexInput, -- the current input
-      fresh_vrefs :: ([TypeVarRef], [DimVarRef]) -- fresh variable references to use when constructing types
+tokId :: AlexAction RangedToken
+tokId inp@(_, _, str, _) len =
+  pure RangedToken
+    { rtToken = Identifier $ BS.take len str
+    , rtRange = mkRange inp len
     }
-  deriving Show
 
--- The parser return type.
-data PResult a
-  = POk !PState !a
-  | PFailed !PState !CompileError
-  deriving Show
+tok :: Token -> AlexAction RangedToken
+tok ctor inp len =
+  pure RangedToken
+  { rtToken = ctor
+  , rtRange = mkRange inp len
+  }
 
--- The parser monad.
-newtype P a = P { unP :: PState -> PResult a }
+tokInt :: AlexAction RangedToken
+tokInt inp@(_, _, str, _) len =
+  pure RangedToken
+    { rtToken = Int $ read $ BS.unpack $ BS.take len str
+    , rtRange = mkRange inp len
+    }
 
-instance Monad P where
-  return = returnP
-  (>>=) = thenP
-  fail = failDefaultP
+tokFloat :: AlexAction RangedToken
+tokFloat inp@(_, _, str, _) len =
+  pure RangedToken
+    { rtToken = Float $ read $ BS.unpack $ BS.take len str
+    , rtRange = mkRange inp len
+    }
 
-returnP :: a -> P a
-returnP a = P $ \s -> POk s a
+tokString :: AlexAction RangedToken
+tokString inp@(_, _, str, _) len =
+  pure RangedToken
+    { rtToken = String $ BS.take len str
+    , rtRange = mkRange inp len
+    }
 
-thenP :: P a -> (a -> P b) -> P b
-(P m) `thenP` k = P $ \ s ->
-  case m s of
-    POk s1 a -> (unP (k a)) s1
-    PFailed s msg -> PFailed s msg
+nestComment :: AlexAction RangedToken
+nestComment input len = do
+  modify $ \s -> s{nestLevel = nestLevel s + 1}
+  skip input len
 
-failP :: CompileError -> P a
-failP err = P $ \s -> PFailed s err
-
-failDefaultP :: String -> P a
-failDefaultP msg = P $ \s -> PFailed s (OtherError msg)
-
-getInputP :: P AlexInput
-getInputP = P $ \s @ PState{ alex_inp = inp } -> POk s inp
-
-setInputP :: AlexInput -> P ()
-setInputP inp = P $ \s -> POk s{ alex_inp = inp } ()
-
-getLineColP :: P (Int, Int)
-getLineColP = P $ \s @ PState{ alex_inp = (AlexPos _ l c,_,_) } -> POk s (l, c)
-
-getFreshVarRefsP :: P ([TypeVarRef], [DimVarRef])
-getFreshVarRefsP = P $ \s @ PState{ fresh_vrefs = vrefs } -> POk s vrefs
-
-putFreshVarRefsP :: ([TypeVarRef], [DimVarRef]) -> P ()
-putFreshVarRefsP vrefs = P $ \s -> POk s{ fresh_vrefs = vrefs } ()
-
-
--- Monadic lexer wrapper (as Happy wants it in continuation passing style).
-lexer :: (Token -> P a) -> P a
-lexer cont = do
-  tok <- lexToken
-  cont tok
-
--- Monadic lexer.
-lexToken :: P Token
-lexToken = do
-  inp <- getInputP
-  case alexScan inp alexStartCode of
-    AlexEOF -> return TOK_EOF
-    AlexError (_,_,bs) -> lexError $ ByteString.index bs 0
-    AlexSkip  inp' len -> do
-      setInputP inp'
-      lexToken
-    AlexToken inp' len action -> do
-      setInputP inp'
-      action inp len
-
--- Lexer error function.
-lexError :: Char -> P a
-lexError c = do
-  pos <- getLineColP;
-  failP $ LexerError pos $ LexerErrorNoLex c
+unnestComment :: AlexAction RangedToken
+unnestComment input len = do
+  state <- get
+  let level = nestLevel state - 1
+  put state{nestLevel = level}
+  when (level == 0) $
+    alexSetStartCode 0
+  skip input len
 }

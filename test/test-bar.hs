@@ -1,9 +1,10 @@
 module Main where
 
-import Data.Map (Map)
 import Control.Monad.State
+import Data.Map (Map)
+import Data.ByteString.Lazy.Char8 (pack)
 
-import Parser
+import Ast
 
 -- an example from https://github.com/jykuo-love-shiritori/Hibiscus/issues/2
 
@@ -19,30 +20,30 @@ data UT
 -- let main (unit : ()) : () =
 --   print ("The answer is: " + the_answer)
 
-testDecs = Right
-  [ Dec UT (Name UT "the_answer") [] (Just (TVar UT (Name UT "int")))
-    (ELetIn UT (Dec UT (Name UT "a") [] Nothing (EInt UT 20))
-      (ELetIn UT (Dec UT (Name UT "b") [] Nothing (EInt UT 1))
-        (ELetIn UT (Dec UT (Name UT "c") [] Nothing (EInt UT 2))
-          (EBinOp UT
-            (EBinOp UT
-              (EVar UT (Name UT "a"))
-              (Times UT)
-              (EVar UT (Name UT "c")))
-            (Plus UT)
-            (EBinOp UT
-              (EVar UT (Name UT "b"))
-              (Times UT)
-              (EVar UT (Name UT "c")))))))
-  , Dec UT (Name UT "main") [Argument UT (Name UT "unit") (Just (TUnit UT))] (Just (TUnit UT))
-    (EApp UT
-      (EVar UT (Name UT "print"))
-      (EPar UT
-        (EBinOp UT
-          (EString UT "\"The answer is: \"")
-          (Plus UT)
-          (EVar UT (Name UT "the_answer")))))
-  ]
+-- testDecs = Right
+--   [ Dec UT (Name UT "the_answer") [] (Just (TVar UT (Name UT "int")))
+--     (ELetIn UT (Dec UT (Name UT "a") [] Nothing (EInt UT 20))
+--       (ELetIn UT (Dec UT (Name UT "b") [] Nothing (EInt UT 1))
+--         (ELetIn UT (Dec UT (Name UT "c") [] Nothing (EInt UT 2))
+--           (EBinOp UT
+--             (EBinOp UT
+--               (EVar UT (Name UT "a"))
+--               (Times UT)
+--               (EVar UT (Name UT "c")))
+--             (Plus UT)
+--             (EBinOp UT
+--               (EVar UT (Name UT "b"))
+--               (Times UT)
+--               (EVar UT (Name UT "c")))))))
+--   , Dec UT (Name UT "main") [Argument UT (Name UT "unit") (Just (TUnit UT))] (Just (TUnit UT))
+--     (EApp UT
+--       (EVar UT (Name UT "print"))
+--       (EPar UT
+--         (EBinOp UT
+--           (EString UT "\"The answer is: \"")
+--           (Plus UT)
+--           (EVar UT (Name UT "the_answer")))))
+--   ]
 
 -- type Env a = Map String (Type a)
 
@@ -52,7 +53,7 @@ testDecs = Right
 -- --  where
 -- --   h (TVar a n) = undefined
 -- --   h _ = undefined
--- u1 :: TyEnv a -> Env a -> Exp a -> Exp a
+-- u1 :: TyEnv a -> Env a -> Expr a -> Expr a
 -- u1 tenv env exp = undefined
 --  where
 --   h ELetIn _ dec exp = undefined
@@ -110,12 +111,12 @@ applySubst = undefined
 newST = undefined
 
 
-typeInfer :: Show a => TyEnv a -> Exp a -> Either String (Subst a, Type a)
+typeInfer :: Show a => TyEnv a -> Expr a -> Either String (Subst a, Type a)
 typeInfer env expr_ = case expr_ of
     EVar _ name@(Name _ x) -> case lookup name env of
         Just t -> return ([], t)
-        Nothing -> Left $ "Unbound variable: " ++ x
-    ELetIn _ (Dec _ name args maybetype decexp) exp ->
+        Nothing -> Left $ "Unbound variable: " ++ show x
+    ELetIn _ (Dec _ name args decexp) exp ->
       let
         aux arg = case arg of
           (Argument a n Nothing)  -> (n, TVar a n)
@@ -133,7 +134,7 @@ typeInfer env expr_ = case expr_ of
         tv <- undefined -- TODO: get new type var
         s3 <- unify (applySubst s2 tf) (TArrow undefined tx tv)
         return (s3 ++ s2 ++ s1, applySubst s3 tv)
-    EInt _ _ -> return ([], TLit "int")
+    EInt a _ -> return ([], TLit a $ pack "int")
     EPar _ exp -> typeInfer env exp
     EUnit a -> return ([], TUnit a)
     _ -> Left "WIP: unsupported structure"
@@ -141,12 +142,12 @@ typeInfer env expr_ = case expr_ of
 --
 --traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
 
-typeCheck :: Show a => [Dec a] -> Either String [Dec a]
-typeCheck decs_ = traverse h decs_
+typeCheck :: Show a => [Dec a] -> [Either String (Dec a)]
+typeCheck decs_ = fmap h decs_
   where
-    h_dec (Dec a n _ Nothing _)  = (n, TVar a n)
-    h_dec (Dec _ n _ (Just t) _) = (n, t)
-    -- toplevelEnv = foldl (\e d -> e ++ [h_dec d]) [] decs_
+    h_dec (DecAnno _ n t) = [(n, t)]
+    h_dec _  = []
+    -- toplevelEnv = foldl (\e d -> e ++ (h_dec d)) [] decs_
     toplevelEnv = undefined
 
     h_arg arg = case arg of
@@ -155,18 +156,21 @@ typeCheck decs_ = traverse h decs_
     getargenv = foldl (\e a -> e ++ [h_arg a]) []
 
     h :: Show a => Dec a -> Either String (Dec a)
-    h (Dec a n args maybety exp) =
+    h (Dec a n args exp) =
       let
         argenv = getargenv args
       in do
         (s1, t1) <- typeInfer (argenv ++ toplevelEnv) exp
         s2 <- undefined
-        return (Dec a n args (Just t1) exp)
+        return (Dec a n args exp)
+    h _ = undefined
 
 main :: IO ()
-main = let
-    rs = testDecs >>= typeCheck
-  in do
-  putStrLn ("aaa" ++ (show rs))
-  return ()
+main =
+--  let
+--    rs = testDecs >>= typeCheck
+--  in
+  do
+--    putStrLn ("aaa" ++ (show rs))
+    return ()
 
