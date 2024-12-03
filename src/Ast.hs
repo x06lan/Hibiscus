@@ -27,7 +27,7 @@ data Dec a
     deriving (Foldable, Show)
 
 data Expr a
-    = EInt a Integer
+    = EInt a Int
     | EFloat a Float
     | EVar a (Name a)
     | EString a ByteString

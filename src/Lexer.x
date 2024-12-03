@@ -76,7 +76,7 @@ tokens :-
 
 <0> @id     { tokId }
 
-<0> $digit+ { tokInteger }
+<0> $digit+ { tokInt }
 <0> $digit+\.$digit+ { tokFloat }
 <0> \"[^\"]*\" { tokString }
 
@@ -122,7 +122,7 @@ data Token
   = Identifier ByteString
   -- const
   | String ByteString
-  | Integer Integer
+  | Int Int
   | Float Float
   -- keyword
   | Let
@@ -178,10 +178,10 @@ tok ctor inp len =
   , rtRange = mkRange inp len
   }
 
-tokInteger :: AlexAction RangedToken
-tokInteger inp@(_, _, str, _) len =
+tokInt :: AlexAction RangedToken
+tokInt inp@(_, _, str, _) len =
   pure RangedToken
-    { rtToken = Integer $ read $ BS.unpack $ BS.take len str
+    { rtToken = Int $ read $ BS.unpack $ BS.take len str
     , rtRange = mkRange inp len
     }
 

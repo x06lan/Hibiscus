@@ -23,7 +23,7 @@ import Ast
 %token
   identifier  { L.RangedToken (L.Identifier _) _ }
   string      { L.RangedToken (L.String _) _ }
-  integer     { L.RangedToken (L.Integer _) _ }
+  int         { L.RangedToken (L.Int _) _ }
   float       { L.RangedToken (L.Float _) _ }
   let         { L.RangedToken L.Let _ }
   in          { L.RangedToken L.In _ }
@@ -127,7 +127,7 @@ exprcond :: { Expr L.Range }
   : if expr then expr else expr { EIfThenElse (L.rtRange $1 <-> info $6) $2 $4 $6 }
 
 atom :: { Expr L.Range }
-  : integer                   { unTok $1 (\range (L.Integer int) -> EInt range int) }
+  : int                       { unTok $1 (\range (L.Int int) -> EInt range int) }
   | float                     { unTok $1 (\range (L.Float float) -> EFloat range float) }
   | name                      { EVar (info $1) $1 }
   | string                    { unTok $1 (\range (L.String string) -> EString range string) }
