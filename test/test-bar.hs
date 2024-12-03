@@ -7,7 +7,9 @@ import Parser
 
 -- an example from https://github.com/jykuo-love-shiritori/Hibiscus/issues/2
 
-data UT = UT | NUT String -- Unknown Type
+data UT
+  = UT
+  deriving (Show)
 
 -- let the_answer : int =
 --   let a = 20 in
@@ -17,7 +19,7 @@ data UT = UT | NUT String -- Unknown Type
 -- let main (unit : ()) : () =
 --   print ("The answer is: " + the_answer)
 
-test = Right
+testDecs = Right
   [ Dec UT (Name UT "the_answer") [] (Just (TVar UT (Name UT "int")))
     (ELetIn UT (Dec UT (Name UT "a") [] Nothing (EInt UT 20))
       (ELetIn UT (Dec UT (Name UT "b") [] Nothing (EInt UT 1))
@@ -123,7 +125,7 @@ typeInfer env expr_ = case expr_ of
       in do
         (s1, t1) <- typeInfer argenv decexp
         (s2, t2) <- typeInfer (env ++ [(name, t1)]) exp
-	return (s1 ++ s2, t2)
+        return (s1 ++ s2, t2)
     EApp _ f x -> do
         -- tf = tx -> tv
         (s1, tf) <- typeInfer env f
@@ -137,14 +139,34 @@ typeInfer env expr_ = case expr_ of
     _ -> Left "WIP: unsupported structure"
 
 --
+--traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
 
-typeCheck :: [Dec a] -> Either String ()
-typeCheck decs_ = undefined
+typeCheck :: Show a => [Dec a] -> Either String [Dec a]
+typeCheck decs_ = traverse h decs_
   where
-    aux (Dec a n _ Nothing _)  = (n, TVar a n)
-    aux (Dec _ n _ (Just t) _) = (n, t)
-    scanTopLevel = foldl (\e d -> e ++ [aux d] [] decs_
+    h_dec (Dec a n _ Nothing _)  = (n, TVar a n)
+    h_dec (Dec _ n _ (Just t) _) = (n, t)
+    -- toplevelEnv = foldl (\e d -> e ++ [h_dec d]) [] decs_
+    toplevelEnv = undefined
 
-main = do
+    h_arg arg = case arg of
+      (Argument a n Nothing)  -> (n, TVar a n)
+      (Argument _ n (Just t)) -> (n, t)
+    getargenv = foldl (\e a -> e ++ [h_arg a]) []
+
+    h :: Show a => Dec a -> Either String (Dec a)
+    h (Dec a n args maybety exp) =
+      let
+        argenv = getargenv args
+      in do
+        (s1, t1) <- typeInfer (argenv ++ toplevelEnv) exp
+        s2 <- undefined
+        return (Dec a n args (Just t1) exp)
+
+main :: IO ()
+main = let
+    rs = testDecs >>= typeCheck
+  in do
+  putStrLn ("aaa" ++ (show rs))
   return ()
 
