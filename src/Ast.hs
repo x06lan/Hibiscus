@@ -18,7 +18,7 @@ data Type a
     deriving (Foldable, Show)
 
 data Argument a
-    = Argument a (Name a) (Maybe (Type a))
+    = Argument a (Name a)
     deriving (Foldable, Show)
 
 data Dec a
