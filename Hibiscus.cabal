@@ -15,10 +15,13 @@ extra-source-files:
 
 library
   exposed-modules:
+      Asm
       Ast
+      CodeGen
       Lexer
       Main
       Parser
+      Typing
   other-modules:
       Paths_Hibiscus
   hs-source-dirs:
