@@ -22,7 +22,14 @@ data Type a
     deriving (Foldable, Show)
 
 instance Eq (Type a) where
-  t1 == t2 = undefined
+  (TVar _ n1)        == (TVar _ n2)        = n1 == n2
+  (TPar _ t1)        == t2                 = t1 == t2
+  t1                 == (TPar _ t2)        = t1 == t2
+  (TUnit _)          == (TUnit _)          = True
+  (TList _ t1)       == (TList _ t2)       = t1 == t2
+  (TArrow _ t1a t1b) == (TArrow _ t2a t2b) = t1a == t2a && t1b == t2b
+  (TLit _ s1)        == (TLit _ s2)        = s1 == s2
+  _                  == _                  = False
 
 data Argument a
     = Argument a (Name a) (Maybe (Type a))
@@ -32,6 +39,10 @@ data Dec a
     = Dec a (Name a) [Argument a] (Expr a)
     | DecAnno a (Name a) (Type a)
     deriving (Foldable, Show)
+
+isDecAnno :: Dec a -> Bool
+isDecAnno (DecAnno _ _ _) = True
+isDecAnno _ = False
 
 data Expr a
     = EInt a Int

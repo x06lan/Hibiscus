@@ -8,9 +8,7 @@ import Ast
 
 -- an example from https://github.com/jykuo-love-shiritori/Hibiscus/issues/2
 
-data UT
-  = UT
-  deriving (Show)
+data UT = UT deriving (Show)
 
 -- let the_answer : int =
 --   let a = 20 in
@@ -47,25 +45,36 @@ data UT
 
 -- type Env a = Map String (Type a)
 
--- unify :: TyEnv a -> Env a -> [Dec a] -> [Dec a]
+-- unify :: Env a -> Env a -> [Dec a] -> [Dec a]
 -- unify _ _ [] = []
 -- unify tenv env ((Dec _ name arg mt exp):xs) = undefined
 -- --  where
 -- --   h (TVar a n) = undefined
 -- --   h _ = undefined
--- u1 :: TyEnv a -> Env a -> Expr a -> Expr a
+-- u1 :: Env a -> Env a -> Expr a -> Expr a
 -- u1 tenv env exp = undefined
 --  where
 --   h ELetIn _ dec exp = undefined
 --   h EInt _ itg = undefined
 --   h _ = undefined
 
--- type TyEnv a = Map String (Type a)
+-- type Env a = Map String (Type a)
 
-type TyEnv a = [(Name a, Type a)]
---lookup = undefined
+type Constraint a = (Name a, Type a)
+type Env a = [Constraint a]
 
--- chatGPT gens
+----- AUXILIARYS BEGIN -----
+class Puff f where
+  getConstraints :: f a -> [Constraint a]
+
+instance Puff Argument where
+  getConstraints arg = case arg of
+    (Argument a n Nothing)  -> [(n, TVar a n)]
+    (Argument _ n (Just t)) -> [(n, t)]
+instance Puff Dec where
+  getConstraints (DecAnno _ n t) = [(n, t)]
+  getConstraints _ = []
+----- AUXILIARYS END -------
 
 type Subst a = [(String, Type a)]  -- Substitution map
 
@@ -108,14 +117,14 @@ applySubstEnv = undefined
 applySubst = undefined
 
 -- get new type symbol
+newST :: a -> Type a
 newST = undefined
 
-
-typeInfer :: Show a => TyEnv a -> Expr a -> Either String (Subst a, Type a)
+typeInfer :: Show a => Env a -> Expr a -> Either String (Subst a, Type a)
 typeInfer env expr_ = case expr_ of
     EVar _ name@(Name _ x) -> case lookup name env of
         Just t -> return ([], t)
-        Nothing -> Left $ "Unbound variable: " ++ show x
+ 	Nothing -> Left $ "Unbound variable: " ++ show x
     ELetIn _ (Dec _ name args decexp) exp ->
       let
         aux arg = case arg of
@@ -127,40 +136,31 @@ typeInfer env expr_ = case expr_ of
         (s1, t1) <- typeInfer argenv decexp
         (s2, t2) <- typeInfer (env ++ [(name, t1)]) exp
         return (s1 ++ s2, t2)
-    EApp _ f x -> do
+    EApp a f x -> do
         -- tf = tx -> tv
         (s1, tf) <- typeInfer env f
         (s2, tx) <- typeInfer (applySubstEnv s1 env) x
         tv <- undefined -- TODO: get new type var
-        s3 <- unify (applySubst s2 tf) (TArrow undefined tx tv)
+        s3 <- unify (applySubst s2 tf) (TArrow a tx tv)
         return (s3 ++ s2 ++ s1, applySubst s3 tv)
     EInt a _ -> return ([], TLit a $ pack "int")
     EPar _ exp -> typeInfer env exp
     EUnit a -> return ([], TUnit a)
     _ -> Left "WIP: unsupported structure"
 
---
 --traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
 
 typeCheck :: Show a => [Dec a] -> [Either String (Dec a)]
 typeCheck decs_ = fmap h decs_
   where
-    h_dec (DecAnno _ n t) = [(n, t)]
-    h_dec _  = []
-    -- toplevelEnv = foldl (\e d -> e ++ (h_dec d)) [] decs_
-    toplevelEnv = undefined
+ --   toplevelEnv = catMaybes $ fmap envFromDec decs_
+    toplevelEnv = concatMap getConstraints decs_
 
-    h_arg arg = case arg of
-      (Argument a n Nothing)  -> (n, TVar a n)
-      (Argument _ n (Just t)) -> (n, t)
-    getargenv = foldl (\e a -> e ++ [h_arg a]) []
-
-    h :: Show a => Dec a -> Either String (Dec a)
     h (Dec a n args exp) =
       let
-        argenv = getargenv args
+        argEnv = concatMap getConstraints args
       in do
-        (s1, t1) <- typeInfer (argenv ++ toplevelEnv) exp
+        (s1, t1) <- typeInfer (argEnv ++ toplevelEnv) exp
         s2 <- undefined
         return (Dec a n args exp)
     h _ = undefined
