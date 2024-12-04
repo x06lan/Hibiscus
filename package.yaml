@@ -8,14 +8,31 @@ extra-source-files:
 default-extensions:
 - OverloadedStrings
 
-library:
-  source-dirs: src
-  dependencies:
-  - array
-  - base
-  - bytestring
-  - containers
-  - mtl
-  build-tools:
-  - alex
-  - happy
+# library:
+#   source-dirs: src
+#   dependencies:
+#   - array
+#   - base
+#   - bytestring
+#   - containers
+#   - mtl
+#   build-tools:
+#   - alex
+#   - happy
+
+tests:
+  typeinfer-playground:
+    main: bs2.hs
+    source-dirs:
+    - test
+    - src
+    other-modules:
+    - Ast
+    verbatim:
+      type: exitcode-stdio-1.0 # detailed-0.9
+      default-language: null
+    dependencies:
+    - base
+    - containers
+    - mtl
+    - bytestring

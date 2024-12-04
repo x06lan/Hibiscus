@@ -18,7 +18,7 @@ data Type a
     | TUnit a
     | TList a (Type a)
     | TArrow a (Type a) (Type a)
-    | TLit a ByteString
+    | TUnknown a Int
     deriving (Foldable, Show)
 
 instance Eq (Type a) where
@@ -28,11 +28,10 @@ instance Eq (Type a) where
   (TUnit _)          == (TUnit _)          = True
   (TList _ t1)       == (TList _ t2)       = t1 == t2
   (TArrow _ t1a t1b) == (TArrow _ t2a t2b) = t1a == t2a && t1b == t2b
-  (TLit _ s1)        == (TLit _ s2)        = s1 == s2
   _                  == _                  = False
 
 data Argument a
-    = Argument a (Name a) (Maybe (Type a))
+    = Argument a (Name a)
     deriving (Foldable, Show)
 
 data Dec a

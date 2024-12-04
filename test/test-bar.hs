@@ -1,47 +1,17 @@
+-- XXX: I GIVE THIS UP, but I believe it still valuable
 module Main where
 
 import Control.Monad.State
+import Control.Monad.Reader
+
 import Data.Map (Map)
-import Data.ByteString.Lazy.Char8 (pack)
+import Data.ByteString.Lazy.Char8 (ByteString, pack)
 
 import Ast
 
 -- an example from https://github.com/jykuo-love-shiritori/Hibiscus/issues/2
 
 data UT = UT deriving (Show)
-
--- let the_answer : int =
---   let a = 20 in
---   let b = 1 in
---   let c = 2 in
---   a * c + b * c
--- let main (unit : ()) : () =
---   print ("The answer is: " + the_answer)
-
--- testDecs = Right
---   [ Dec UT (Name UT "the_answer") [] (Just (TVar UT (Name UT "int")))
---     (ELetIn UT (Dec UT (Name UT "a") [] Nothing (EInt UT 20))
---       (ELetIn UT (Dec UT (Name UT "b") [] Nothing (EInt UT 1))
---         (ELetIn UT (Dec UT (Name UT "c") [] Nothing (EInt UT 2))
---           (EBinOp UT
---             (EBinOp UT
---               (EVar UT (Name UT "a"))
---               (Times UT)
---               (EVar UT (Name UT "c")))
---             (Plus UT)
---             (EBinOp UT
---               (EVar UT (Name UT "b"))
---               (Times UT)
---               (EVar UT (Name UT "c")))))))
---   , Dec UT (Name UT "main") [Argument UT (Name UT "unit") (Just (TUnit UT))] (Just (TUnit UT))
---     (EApp UT
---       (EVar UT (Name UT "print"))
---       (EPar UT
---         (EBinOp UT
---           (EString UT "\"The answer is: \"")
---           (Plus UT)
---           (EVar UT (Name UT "the_answer")))))
---   ]
 
 -- type Env a = Map String (Type a)
 
@@ -59,24 +29,49 @@ data UT = UT deriving (Show)
 --   h _ = undefined
 
 -- type Env a = Map String (Type a)
-
-type Constraint a = (Name a, Type a)
+type Poo a = Maybe (Type a)
+type Constraint a = (Name a, Poo a)
 type Env a = [Constraint a]
 
 ----- AUXILIARYS BEGIN -----
-class Puff f where
-  getConstraints :: f a -> [Constraint a]
+type Symbol = Int
+getNewSymbol :: Env a -> Name a -> (Env a, Type a)
+getNewSymbol env name@(Name a _) = (ne, nt)
+ where
+  h acc (_, TUnknown _ i) = max acc i
+  h acc _              = acc
+  ns = 1 + foldl h 0 env
+  nt = TUnknown a ns
+  ne = (name, nt) : env
 
-instance Puff Argument where
-  getConstraints arg = case arg of
-    (Argument a n Nothing)  -> [(n, TVar a n)]
-    (Argument _ n (Just t)) -> [(n, t)]
+-- md := metadata
+curry :: Env a -> [Argument a] -> Type a -> Either String (Env a, Type a)
+curry env args t = foldr h (env, t) args
+ where
+   h (e,t) (Argument md name) = (ne, TArrow a nt t)
+    where
+      (ne, nt) = getNewSymbol e name
+    
+
+class Puff f where
+  getConstraints :: Env a -> f a -> Env a
+
 instance Puff Dec where
-  getConstraints (DecAnno _ n t) = [(n, t)]
-  getConstraints _ = []
+  getConstraints env dec = case dec of
+    (DecAnno _ n t)      -> [(n, t)]
+    (Dec     a n args _) -> [(n, curry ne args nt)]
+     where
+       (ne, nt) = getNewSymbol e name
+instance Puff Argument where
+  getConstraints env (Argument a name) = [(name, )]
+   where
+     (ne, nt) = getNewSymbol e name
+
+litType :: a -> String -> Type a
+litType a str = TVar a $ Name a $ pack str
 ----- AUXILIARYS END -------
 
-type Subst a = [(String, Type a)]  -- Substitution map
+type Subst a = [(Symbol, Type a)]  -- Substitution map
 
 unify :: Show a => Type a -> Type a -> Either String (Subst a)
 unify t1 t2
@@ -116,24 +111,20 @@ freshTypeVar = undefined
 applySubstEnv = undefined
 applySubst = undefined
 
--- get new type symbol
-newST :: a -> Type a
-newST = undefined
+typeInfer' :: Show a => Env a -> Expr a -> (Env a, Expr a)
+typeInfer' = undefined
 
 typeInfer :: Show a => Env a -> Expr a -> Either String (Subst a, Type a)
 typeInfer env expr_ = case expr_ of
-    EVar _ name@(Name _ x) -> case lookup name env of
-        Just t -> return ([], t)
+    EVar _ name@(Name _ x) ->
+      case lookup name env of --FIXME: look upd need rewrite
+        Just t  -> return ([], t)
  	Nothing -> Left $ "Unbound variable: " ++ show x
     ELetIn _ (Dec _ name args decexp) exp ->
       let
-        aux arg = case arg of
-          (Argument a n Nothing)  -> (n, TVar a n)
-          (Argument _ n (Just t)) -> (n, t)
-      in let
-        argenv = foldl (\e a -> e ++ [aux a]) env args
+        argEnv = concatMap getConstraints args
       in do
-        (s1, t1) <- typeInfer argenv decexp
+        (s1, t1) <- typeInfer (env ++ argEnv) decexp
         (s2, t2) <- typeInfer (env ++ [(name, t1)]) exp
         return (s1 ++ s2, t2)
     EApp a f x -> do
@@ -143,27 +134,36 @@ typeInfer env expr_ = case expr_ of
         tv <- undefined -- TODO: get new type var
         s3 <- unify (applySubst s2 tf) (TArrow a tx tv)
         return (s3 ++ s2 ++ s1, applySubst s3 tv)
-    EInt a _ -> return ([], TLit a $ pack "int")
+    EInt a _    -> return ([], litType a "Int")
+    EFloat a _  -> return ([], litType a "Float")
+    EString a _ -> return ([], litType a "String")
     EPar _ exp -> typeInfer env exp
     EUnit a -> return ([], TUnit a)
     _ -> Left "WIP: unsupported structure"
 
 --traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
+--
+typeCheck' :: Show a => [Dec a] -> State (Env a) (Either String (Env a))
+typeCheck' decs_ = foldl h (return []) decs_
+  where
+    h :: Either String (Env a) -> Dec a -> Either String (Env a)
+    h = undefined
 
 typeCheck :: Show a => [Dec a] -> [Either String (Dec a)]
 typeCheck decs_ = fmap h decs_
   where
- --   toplevelEnv = catMaybes $ fmap envFromDec decs_
     toplevelEnv = concatMap getConstraints decs_
-
-    h (Dec a n args exp) =
+    h env (Dec a name args exp) =
       let
         argEnv = concatMap getConstraints args
+	t0 = case lookup n toplevelEnv of
+	  Just t  -> t
+	  Nothing -> undefined
       in do
         (s1, t1) <- typeInfer (argEnv ++ toplevelEnv) exp
-        s2 <- undefined
-        return (Dec a n args exp)
-    h _ = undefined
+        s2 <- unify t0 t1
+        return (Dec a name args exp)
+    h decAnno = return decAnno
 
 main :: IO ()
 main =

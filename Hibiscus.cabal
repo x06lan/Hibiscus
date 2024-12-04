@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.37.0.
+-- This file has been generated from package.yaml by hpack version 0.35.2.
 --
 -- see: https://github.com/sol/hpack
 
@@ -13,32 +13,18 @@ extra-source-files:
     README.md
     LICENSE
 
-library
-  exposed-modules:
-      Ast
-      Lexer
-      Main
-      Parser
+test-suite typeinfer-playground
+  main-is: bs2.hs
   other-modules:
-      Paths_Hibiscus
+      Ast
   hs-source-dirs:
+      test
       src
   default-extensions:
       OverloadedStrings
-  build-tools:
-      alex
-    , happy
   build-depends:
-      array
-    , base
+      base
     , bytestring
     , containers
     , mtl
-  default-language: Haskell2010
-
-Test-Suite test-bar
-    type:           exitcode-stdio-1.0
-    hs-source-dirs: test src
-    main-is:        test-bar.hs
-    build-depends:  base, containers, mtl, bytestring
-
+  type: exitcode-stdio-1.0
