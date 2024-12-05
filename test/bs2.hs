@@ -25,35 +25,36 @@ type Env a = [Constraint a]
 update :: (Show a) => Env a -> Constraint a -> Result (Env a)
 update env x@(n, _) =
   case lookup n env of
-    Just _ -> Left $ "Duplicated NAME" ++ show n
+    Just _ -> Left $ "Duplicated " ++ show n
     Nothing -> return $ x : env
 
-getNewSymbol :: (Show a) => Env a -> Name a -> Result (Env a, Type a)
-getNewSymbol env name@(Name a _) =
+type Subst a = [(Symbol, Type a)]
+
+getNewSymbol :: (Show a) => Env a -> a -> Type a
+getNewSymbol env a =
   let
     extractIndex (_, TUnknown _ i) = i
     extractIndex _ = 0
-    nextIndex = maximum (map extractIndex env) + 1
+    nextIndex = maximum (0 : map extractIndex env) + 1
     t' = TUnknown a nextIndex
    in
-    do
-      e' <- update env (name, t')
-      return (e', t')
+    t'
 
 getDecType :: (Show a) => Env a -> Dec a -> Result (Env a, Type a)
 getDecType env_ (Dec a name args _) =
-  do
-    (e0, tb) <- getNewSymbol env_ name
-    foldrM h (e0, tb) args
- where
-  --  h :: Arg -> (Env, Type) -> Result (Env, Type)
-  h (Argument md name) (e, tb) =
-    do
-      (e', ta) <- getNewSymbol e name
-      return (e', TArrow md ta tb)
+  let
+    tb = getNewSymbol env_ a
+  in do
+    foldrM h (env_, tb) args
+  where
+--  h :: Arg -> (Env, Type) -> Result (Env, Type)
+    h (Argument a name) (e, tb) =
+      let
+        ta = getNewSymbol e a
+      in do
+        e' <- update e (name, ta)
+        return (e', TArrow a ta tb)
 getDecType env _ = Left "Could only get type from Dec"
-
-type Subst a = [(Symbol, Type a)]
 
 subTy :: Subst a -> Type a -> Type a
 subTy sub t@(TUnknown a s) = fromMaybe t (lookup s sub)
@@ -83,12 +84,19 @@ typeCheck decs_ = foldlM h [] decs_
  where
   --  h :: Env a -> Dec a -> Result (Env a)
   h env dec = case dec of
-    (DecAnno _ n t) -> update env (n, t)
+    (DecAnno _ n t) -> case lookup n env of
+      Just t' -> do
+        s1 <- unify env t t'
+        return (subEnv s1 env)
+      Nothing -> update env (n, t)
     (Dec a name args exp) ->
       do
-        (e1, decT) <- getDecType env dec
-        s2 <- maybe (return []) (unify e1 decT) (lookup name env)
-        return (subEnv s2 e1)
+        (_, decT) <- getDecType env dec
+        case lookup name env of
+          Just annT  -> do
+            s2 <- unify env decT annT
+            return (subEnv s2 env)
+          Nothing -> update env (name, decT)
 
 main :: IO ()
 main = do
