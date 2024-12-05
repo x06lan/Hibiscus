@@ -25,6 +25,7 @@ import Ast
   string      { L.RangedToken (L.String _) _ }
   int         { L.RangedToken (L.Int _) _ }
   float       { L.RangedToken (L.Float _) _ }
+  bool        { L.RangedToken (L.Bool _) _ }
   let         { L.RangedToken L.Let _ }
   in          { L.RangedToken L.In _ }
   if          { L.RangedToken L.If _ }
@@ -133,6 +134,7 @@ atom :: { Expr L.Range }
   | float                     { unTok $1 (\range (L.Float float) -> EFloat range float) }
   | name                      { EVar (info $1) $1 }
   | string                    { unTok $1 (\range (L.String string) -> EString range string) }
+  | bool                      { unTok $1 (\range (L.Bool bool) -> EBool range bool) }
   | '(' ')'                   { EUnit (L.rtRange $1 <-> L.rtRange $2) }
   | '[' sepBy(expr, ',') ']'  { EList (L.rtRange $1 <-> L.rtRange $3) $2 }
   | '(' expr ')'              { EPar (L.rtRange $1 <-> L.rtRange $3) $2 }
