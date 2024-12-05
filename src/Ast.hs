@@ -2,7 +2,7 @@
 
 module Ast where
 
-import Data.ByteString.Lazy.Char8 (ByteString)
+import Data.ByteString.Lazy.Char8 (ByteString, unpack)
 
 data Name a
     = Name a ByteString
@@ -19,7 +19,15 @@ data Type a
     | TList a (Type a)
     | TArrow a (Type a) (Type a)
     | TUnknown a Int -- FIXME: use `Either`
-    deriving (Foldable, Show)
+    deriving (Foldable)
+
+prettyT (TArrow _ ta tb) = prettyT ta ++ " -> " ++ prettyT tb
+prettyT (TVar _ (Name _ n)) = unpack n
+prettyT (TUnknown _ s) = "?" ++ show s
+prettyT t = show t
+
+instance Show (Type a) where
+  show t = "Type \"" ++ prettyT t ++ "\""
 
 instance Eq (Type a) where
   (TVar _ n1)        == (TVar _ n2)        = n1 == n2

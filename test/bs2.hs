@@ -7,10 +7,13 @@
 module Main where
 
 import Data.Bifunctor (second)
+import Data.Maybe
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.Foldable (foldlM, foldrM)
 import Data.Map (Map)
 import Data.Maybe (fromMaybe, maybe)
+
+import Debug.Trace
 
 import Ast
 import Lexer
@@ -41,8 +44,10 @@ update (Env i es) x@(n, _) =
 
 type Subst a = [(Symbol, Type a)]
 
-getNewUnkTy :: (Show a) => Env a -> a -> (Env a, Type a)
+getNewUnkTy :: Env a -> a -> (Env a, Type a)
 getNewUnkTy (Env i xs) a = (Env (i + 1) xs, TUnknown a i)
+curryT :: a -> [Type a] -> Type a -> Type a
+curryT a argTs tb = foldr (TArrow a) tb argTs
 
 getDecType :: (Show a) => Env a -> Dec a -> Result (Env a, Type a)
 getDecType env_ (Dec a name args _) =
@@ -102,13 +107,15 @@ typeInfer env expr_ = case expr_ of
     EApp a f x ->
       do
         -- tf = tx -> tv
-        (s1, tf) <- typeInfer            env  f -- FIXME: need subst
+        (s1, tf) <- typeInfer            env  f
         (s2, tx) <- typeInfer (subEnv s1 env) x
         return (getNewUnkTy (subEnv (s1 ++ s2) env) a)
           >>= \(e0, tv) ->
-            unify e0 (subTy (s1 ++ s2) tf) (TArrow a tx tv)
-              >>= \s3 ->
-                return (s1 ++ s2 ++ s3, subTy (s1 ++ s2 ++ s3) tv)
+            unify e0 (subTy s2 tf) (TArrow a tx tv)
+              >>= \s3 -> do
+                -- traceShow (prettyT tf) (pure ())
+                -- FIXME: works now but I guess some duplicated symbel problem here
+                return (s1 ++ s2 ++ s3, subTy s3 tv)
     EBinOp a e1 op e2 -> -- TODO: biop
       let
         (e', t) = getNewUnkTy env a
@@ -118,7 +125,7 @@ typeInfer env expr_ = case expr_ of
       let
         (e', t) = getNewUnkTy env a
       in
-        return ([], t) -- TODO: biop
+        return ([], t)
     EPar _ exp -> typeInfer env exp
     EInt a _    -> return ([], litType a "Int"   )
     EFloat a _  -> return ([], litType a "Float" )
@@ -147,14 +154,16 @@ typeCheck env_ decs_ = foldlM h env_ decs_
               return (subEnv s1 env, subTy s1 decT')
             Nothing ->
               update env (name, decT') >>= \e -> return (e, decT')
-        (s2, t2) <- typeInfer innerEnv expr -- FIXME: need subst
-        (ie',t3) <- return $ getNewUnkTy (subEnv s2 innerEnv) a
-        s3 <- unify ie' decT (TArrow a t3 t2)
+        (s2, texp) <- typeInfer innerEnv expr
+        ie' <- return $ subEnv s2 innerEnv
+--        (ie',t3) <- return $ getNewUnkTy (subEnv s2 innerEnv) a
+        s3 <- unify ie' decT (curryT a (map (\(Argument _ n) -> fromJust $ loookup n ie') args) texp)
         return $ subEnv (s2 ++ s3) e0
 
 main :: IO ()
 main = do
+  putStrLn "\n----- Parse Result ---------------"
   content <- BS.readFile "./example/test.hi"
-  print $                  runAlex content parseHibiscus
-  print "\n"
+  print $                     runAlex content parseHibiscus
+  putStrLn "\n----- Infer Result ---------------"
   print $ typeCheck empty =<< runAlex content parseHibiscus
