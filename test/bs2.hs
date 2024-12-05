@@ -21,6 +21,8 @@ type Result = Either String
 type Symbol = Int
 type Constraint a = (Name a, Type a)
 type Env a = [Constraint a]
+loookup :: Name a -> Env a -> Maybe (Type a)
+loookup (Name _ n) = lookup n . map (\(Name _ n,t) -> (n,t))
 
 update :: (Show a) => Env a -> Constraint a -> Result (Env a)
 update env x@(n, _) =
@@ -79,26 +81,63 @@ unify env t1 t2
 -- foldrM :: (Foldable t, Monad m) => (a -> b -> m b) -> b -> t a -> m b
 -- foldlM :: (Foldable t, Monad m) => (b -> a -> m b) -> b -> t a -> m b
 
-typeCheck :: (Show a) => [Dec a] -> Result (Env a)
-typeCheck decs_ = foldlM h [] decs_
+litType :: a -> String -> Type a
+litType a str = TVar a $ Name a $ BS.pack str
+
+typeInfer :: (Show a) => Env a -> Expr a -> Result (Subst a, Type a)
+typeInfer env expr_ = case expr_ of
+    EVar _ name@(Name _ x) ->
+      case loookup name env of
+        Just t  -> return ([], t)
+        Nothing -> Left $ "Unbound variable: " ++ show x
+    ELetIn a dec expr -> 
+     do
+       e0 <- typeCheck env [dec]
+       typeInfer e0 expr
+--      let
+--        argEnv = concatMap getConstraints args
+--      in do
+--        (s1, t1) <- typeInfer (env ++ argEnv) decexp
+--        (s2, t2) <- typeInfer (env ++ [(name, t1)]) exp
+--        return t2
+--    EApp a f x ->
+--      do
+--        -- tf = tx -> tv
+--        (s1, tf) <- typeInfer env f
+--        (s2, tx) <- typeInfer (applySubstEnv s1 env) x
+--        tv <- undefined -- TODO: get new type var
+--        s3 <- unify (applySubst s2 tf) (TArrow a tx tv)
+--        return undefined
+--      return (s3 ++ s2 ++ s1, applySubst s3 tv)
+    EPar _ exp -> typeInfer env exp
+    EInt a _    -> return ([], litType a "Int"   )
+    EFloat a _  -> return ([], litType a "Float" )
+    EString a _ -> return ([], litType a "String")
+    EUnit a     -> return ([], TUnit a       )
+    _ -> Left "WIP: unsupported structure"
+
+typeCheck :: (Show a) => Env a -> [Dec a] -> Result (Env a)
+typeCheck env_ decs_ = foldlM h env_ decs_
  where
   --  h :: Env a -> Dec a -> Result (Env a)
   h env dec = case dec of
-    (DecAnno _ n t) -> case lookup n env of
-      Just t' -> do
-        s1 <- unify env t t'
-        return (subEnv s1 env)
-      Nothing -> update env (n, t)
-    (Dec a name args exp) ->
-      do
-        (_, decT) <- getDecType env dec
-        case lookup name env of
-          Just annT  -> do
+    (DecAnno _ n t) -> case loookup n env of
+        Just t' -> do
+          s1 <- unify env t t'
+          return (subEnv s1 env)
+        Nothing -> update env (n, t)
+    (Dec a name args expr) -> do
+        (innerEnv, decT) <- getDecType env dec
+        (eee, realT) <- case loookup name env of
+          Just annT -> do
             s2 <- unify env decT annT
-            return (subEnv s2 env)
-          Nothing -> update env (name, decT)
+            return (subEnv s2 env, subTy s2 decT)
+          Nothing -> update env (name, decT) >>= \e -> return (e, decT)
+        (s2, t2) <- typeInfer innerEnv expr -- FIXME: need subst
+        unify eee realT t2
+        return eee
 
 main :: IO ()
 main = do
   content <- BS.readFile "./example/test.hi"
-  print $ typeCheck =<< runAlex content parseHibiscus
+  print $ typeCheck [] =<< runAlex content parseHibiscus
