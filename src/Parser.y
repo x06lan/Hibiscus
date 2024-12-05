@@ -136,6 +136,21 @@ atom :: { Expr L.Range }
   | '(' ')'                   { EUnit (L.rtRange $1 <-> L.rtRange $2) }
   | '[' sepBy(expr, ',') ']'  { EList (L.rtRange $1 <-> L.rtRange $3) $2 }
   | '(' expr ')'              { EPar (L.rtRange $1 <-> L.rtRange $3) $2 }
+  -- Arithmetic operators
+  | '(' '+' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Plus (L.rtRange $2)) }
+  | '(' '-' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Minus (L.rtRange $2)) }
+  | '(' '*' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Times (L.rtRange $2)) }
+  | '(' '/' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Divide (L.rtRange $2)) }
+  -- Comparison operators
+  | '(' '=' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Eq (L.rtRange $2)) }
+  | '(' '<>' ')'              { EOp (L.rtRange $1 <-> L.rtRange $3) (Neq (L.rtRange $2)) }
+  | '(' '<' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Lt (L.rtRange $2)) }
+  | '(' '<=' ')'              { EOp (L.rtRange $1 <-> L.rtRange $3) (Le (L.rtRange $2)) }
+  | '(' '>' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Gt (L.rtRange $2)) }
+  | '(' '>=' ')'              { EOp (L.rtRange $1 <-> L.rtRange $3) (Ge (L.rtRange $2)) }
+  -- Logical operators
+  | '(' '&' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (And (L.rtRange $2)) }
+  | '(' '|' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Or (L.rtRange $2)) }
 
 {
 parseError :: L.RangedToken -> L.Alex a
