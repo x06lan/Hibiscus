@@ -6,8 +6,6 @@
 {-# HLINT ignore "Eta reduce" #-}
 module Main where
 
-import Control.Monad.Reader ()
-import Control.Monad.State ()
 import Data.Bifunctor (second)
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.Foldable (foldlM, foldrM)
@@ -63,11 +61,13 @@ getDecType env_ (Dec a name args _) =
 getDecType env _ = fail "Could only get type from Dec"
 
 subTy :: Subst a -> Type a -> Type a
-subTy sub t@(TUnknown a s) = fromMaybe t (lookup s sub)
+subTy sub t@(TUnknown _ s)   = fromMaybe t (lookup s sub)
+subTy sub t@(TArrow a ta tb) = TArrow a (subTy sub ta) (subTy sub tb)
 subTy _ t = t
 
 subEnv :: Subst a -> Env a -> Env a
-subEnv sub = envMap $ map (second (subTy sub))
+subEnv sub = envMap $ map $ second $ subTy sub
+--           envMap  (map  (second  (subTy   sub)))
 
 unify :: (Show a) => Env a -> Type a -> Type a -> Result (Subst a)
 unify env t1 t2
@@ -77,9 +77,10 @@ unify env t1 t2
         (TUnknown a s, t) -> return [(s, t)]
         (t, TUnknown a s) -> return [(s, t)]
         (TArrow _ a1 b1, TArrow _ a2 b2) -> do
-          s1 <- unify env a1 a2
-          s2 <- unify (subEnv s1 env) (subTy s1 b1) (subTy s1 b2)
-          return $ s2 ++ s1
+          s1 <- unify env b1 b2
+          s2 <- unify (subEnv s1 env) (subTy s1 a1) (subTy s1 a2)
+          return $ s1 ++ s2
+--          fail $ "AAAA: " ++ show t1 ++ show t2 ++ show s1 ++ show s2
         _ -> fail $ "Cannot unify " ++ show t1 ++ " with " ++ show t2
 
 -- foldrM :: (Foldable t, Monad m) => (a -> b -> m b) -> b -> t a -> m b
@@ -93,7 +94,7 @@ typeInfer env expr_ = case expr_ of
     EVar _ name@(Name _ x) ->
       case loookup name env of
         Just t  -> return ([], t)
-        Nothing -> fail $ "Unbound variable: " ++ show name ++ "ENV: " ++ show env
+        Nothing -> fail $ "Unbound variable: " ++ show name
     ELetIn a dec expr -> 
      do
        e0 <- typeCheck env [dec]
@@ -147,9 +148,9 @@ typeCheck env_ decs_ = foldlM h env_ decs_
             Nothing ->
               update env (name, decT') >>= \e -> return (e, decT')
         (s2, t2) <- typeInfer innerEnv expr -- FIXME: need subst
-        (eee',t3) <- return $ getNewUnkTy e0 a
-        s3 <- unify eee' decT (TArrow a t3 t2)
-        return $ subEnv (s3 ++ s2) eee'
+        (ie',t3) <- return $ getNewUnkTy (subEnv s2 innerEnv) a
+        s3 <- unify ie' decT (TArrow a t3 t2)
+        return $ subEnv (s2 ++ s3) e0
 
 main :: IO ()
 main = do
