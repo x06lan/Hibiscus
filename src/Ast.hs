@@ -18,7 +18,7 @@ data Type a
     | TUnit a
     | TList a (Type a)
     | TArrow a (Type a) (Type a)
-    | TUnknown a Int
+    | TUnknown a Int -- FIXME: use `Either`
     deriving (Foldable, Show)
 
 instance Eq (Type a) where
@@ -38,10 +38,6 @@ data Dec a
     = Dec a (Name a) [Argument a] (Expr a)
     | DecAnno a (Name a) (Type a)
     deriving (Foldable, Show)
-
-isDecAnno :: Dec a -> Bool
-isDecAnno (DecAnno _ _ _) = True
-isDecAnno _ = False
 
 data Expr a
     = EInt a Int

@@ -8,17 +8,17 @@ extra-source-files:
 default-extensions:
 - OverloadedStrings
 
-# library:
-#   source-dirs: src
-#   dependencies:
-#   - array
-#   - base
-#   - bytestring
-#   - containers
-#   - mtl
-#   build-tools:
-#   - alex
-#   - happy
+library:
+  source-dirs: src
+  dependencies:
+  - array
+  - base
+  - bytestring
+  - containers
+  - mtl
+  build-tools:
+  - alex
+  - happy
 
 tests:
   typeinfer-playground:
@@ -28,10 +28,13 @@ tests:
     - src
     other-modules:
     - Ast
+    - Lexer
+    - Parser
     verbatim:
       type: exitcode-stdio-1.0 # detailed-0.9
       default-language: null
     dependencies:
+    - array
     - base
     - containers
     - mtl
