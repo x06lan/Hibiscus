@@ -23,6 +23,7 @@ type Result = Either String
 
 instance MonadFail (Result) where
   fail = Left
+
 type Symbol = Int
 type Constraint a = (Name a, Type a)
 data Env a = Env Symbol [Constraint a] deriving (Show)
@@ -43,7 +44,7 @@ update (Env i es) x@(n, _) =
 type Subst a = [(Symbol, Type a)]
 
 getNewUnkTy :: (Show a) => Env a -> a -> (Env a, Type a)
-getNewUnkTy (Env i xs) a = (Env i xs, TUnknown a (i + 1))
+getNewUnkTy (Env i xs) a = (Env (i + 1) xs, TUnknown a i)
 
 getDecType :: (Show a) => Env a -> Dec a -> Result (Env a, Type a)
 getDecType env_ (Dec a name args _) =
@@ -56,8 +57,9 @@ getDecType env_ (Dec a name args _) =
     h (Argument a name) (e, tb) =
       let
         (e', ta) = getNewUnkTy e a
-      in
-        return (e', TArrow a ta tb)
+      in do
+        e'' <- update e' (name, ta)
+        return (e'', TArrow a ta tb)
 getDecType env _ = fail "Could only get type from Dec"
 
 subTy :: Subst a -> Type a -> Type a
@@ -91,7 +93,7 @@ typeInfer env expr_ = case expr_ of
     EVar _ name@(Name _ x) ->
       case loookup name env of
         Just t  -> return ([], t)
-        Nothing -> fail $ "Unbound variable: " ++ show x
+        Nothing -> fail $ "Unbound variable: " ++ show name ++ "ENV: " ++ show env
     ELetIn a dec expr -> 
      do
        e0 <- typeCheck env [dec]
@@ -136,20 +138,22 @@ typeCheck env_ decs_ = foldlM h env_ decs_
         Nothing -> update env (n, t)
     (Dec a name args expr) ->
       do
-        (innerEnv, decT) <- getDecType env dec
-        (eee, realT) <-
+        (innerEnv, decT') <- getDecType env dec
+        (e0, decT) <-
           case loookup name env of
             Just annT -> do
-              s2 <- unify env decT annT
-              return (subEnv s2 env, subTy s2 decT)
-            Nothing -> update env (name, decT) >>= \e -> return (e, decT)
+              s1 <- unify env decT' annT
+              return (subEnv s1 env, subTy s1 decT')
+            Nothing ->
+              update env (name, decT') >>= \e -> return (e, decT')
         (s2, t2) <- typeInfer innerEnv expr -- FIXME: need subst
-        (eee',t3) <- return $ getNewUnkTy eee a
-        s3 <- unify eee' realT (TArrow a t3 t2)
-        return $ subEnv (s3 ++ s2) eee
+        (eee',t3) <- return $ getNewUnkTy e0 a
+        s3 <- unify eee' decT (TArrow a t3 t2)
+        return $ subEnv (s3 ++ s2) eee'
 
 main :: IO ()
 main = do
   content <- BS.readFile "./example/test.hi"
   print $                  runAlex content parseHibiscus
+  print "\n"
   print $ typeCheck empty =<< runAlex content parseHibiscus
