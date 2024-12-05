@@ -49,12 +49,15 @@ tokens :-
 <0> then    { tok Then }
 <0> else    { tok Else }
 
+<0> "="     { tok Assign }
+<0> ";"     { tok SemiColon }
+
 <0> "+"     { tok Plus }
 <0> "-"     { tok Minus }
 <0> "*"     { tok Times }
 <0> "/"     { tok Divide }
 
-<0> "="     { tok Eq }
+<0> "=="    { tok Eq }
 <0> "<>"    { tok Neq }
 <0> "<"     { tok Lt }
 <0> "<="    { tok Le }
@@ -130,6 +133,9 @@ data Token
   | If
   | Then
   | Else
+
+  | Assign
+  | SemiColon
   -- arith
   | Plus
   | Minus

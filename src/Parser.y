@@ -18,7 +18,7 @@ import Ast
 %error { parseError }
 %monad { L.Alex } { >>= } { pure }
 %lexer { lexer } { L.RangedToken L.EOF _ }
-%expect 1 -- FIX: idk why there is a shift/reduce conflict
+%expect 0
 
 %token
   identifier  { L.RangedToken (L.Identifier _) _ }
@@ -30,11 +30,13 @@ import Ast
   if          { L.RangedToken L.If _ }
   then        { L.RangedToken L.Then _ }
   else        { L.RangedToken L.Else _ }
+  '='         { L.RangedToken L.Assign _ }
+  ';'         { L.RangedToken L.SemiColon _ }
   '+'         { L.RangedToken L.Plus _ }
   '-'         { L.RangedToken L.Minus _ }
   '*'         { L.RangedToken L.Times _ }
   '/'         { L.RangedToken L.Divide _ }
-  '='         { L.RangedToken L.Eq _ }
+  '=='        { L.RangedToken L.Eq _ }
   '<>'        { L.RangedToken L.Neq _ }
   '<'         { L.RangedToken L.Lt _ }
   '<='        { L.RangedToken L.Le _ }
@@ -54,7 +56,7 @@ import Ast
 %right '->'
 %left '|'
 %left '&'
-%nonassoc '=' '<>' '<' '>' '<=' '>='
+%nonassoc '==' '<>' '<' '>' '<=' '>='
 %left '+' '-'
 %left '*' '/'
 
@@ -89,10 +91,10 @@ type :: { Type L.Range }
   | type '->' type  { TArrow (info $1 <-> info $3) $1 $3 }
 
 argument :: { Argument L.Range }
-  : name { Argument (info $1) $1 Nothing }
+  : name { Argument (info $1) $1 }
 
 dec :: { Dec L.Range }
-  : name many(argument) '=' expr  { Dec (info $1 <-> info $4) $1 $2 $4 }
+  : name many(argument) '=' expr ';'  { Dec (info $1 <-> info $4) $1 $2 $4 }
   | name '::' type                { DecAnno (info $1 <-> info $3) $1 $3 }
 
 decs :: { [Dec L.Range] }
@@ -108,7 +110,7 @@ expr :: { Expr L.Range }
   | expr '*'  expr      { EBinOp (info $1 <-> info $3) $1 (Times (L.rtRange $2)) $3 }
   | expr '/'  expr      { EBinOp (info $1 <-> info $3) $1 (Divide (L.rtRange $2)) $3 }
   -- Comparison operators
-  | expr '='  expr      { EBinOp (info $1 <-> info $3) $1 (Eq (L.rtRange $2)) $3 }
+  | expr '==' expr      { EBinOp (info $1 <-> info $3) $1 (Eq (L.rtRange $2)) $3 }
   | expr '<>' expr      { EBinOp (info $1 <-> info $3) $1 (Neq (L.rtRange $2)) $3 }
   | expr '<'  expr      { EBinOp (info $1 <-> info $3) $1 (Lt (L.rtRange $2)) $3 }
   | expr '<=' expr      { EBinOp (info $1 <-> info $3) $1 (Le (L.rtRange $2)) $3 }
