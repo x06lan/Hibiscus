@@ -119,7 +119,7 @@ expr :: { Expr L.Range }
   -- Logical operators
   | expr '&'  expr      { EBinOp (info $1 <-> info $3) $1 (And (L.rtRange $2)) $3 }
   | expr '|'  expr      { EBinOp (info $1 <-> info $3) $1 (Or (L.rtRange $2)) $3 }
-  | let dec in expr     { ELetIn (L.rtRange $1 <-> info $4) $2 $4 }
+  | let decs in expr    { ELetIn (L.rtRange $1 <-> info $4) $2 $4 }
 
 exprapp :: { Expr L.Range }
   : exprapp atom  { EApp (info $1 <-> info $2) $1 $2 }

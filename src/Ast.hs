@@ -39,7 +39,7 @@ data Expr a
     | ENeg a (Expr a)
     | EBinOp a (Expr a) (Op a) (Expr a)
     | EOp a (Op a)
-    | ELetIn a (Dec a) (Expr a)
+    | ELetIn a [Dec a] (Expr a)
     deriving (Foldable, Show)
 
 data Op a
