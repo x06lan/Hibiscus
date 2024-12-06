@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 module Hibiscus.Ast where
 
@@ -6,7 +7,7 @@ import Data.ByteString.Lazy.Char8 (ByteString, unpack)
 
 data Name a
     = Name a ByteString
-    deriving (Foldable, Show)
+    deriving (Foldable, Show, Functor)
 
 instance Eq (Name a) where
   (Name _ s1) == (Name _ s2) = s1 == s2
@@ -18,8 +19,8 @@ data Type a
     | TUnit a
     | TList a (Type a)
     | TArrow a (Type a) (Type a)
-    | TUnknown a Int -- FIXME: use `Either`
-    deriving (Foldable)
+    | TUnknown a Int
+    deriving (Foldable, Functor)
 
 prettyT (TArrow _ ta tb) = prettyT ta ++ " -> " ++ prettyT tb
 prettyT (TVar _ (Name _ n)) = unpack n
@@ -40,12 +41,12 @@ instance Eq (Type a) where
 
 data Argument a
     = Argument a (Name a)
-    deriving (Foldable, Show)
+    deriving (Foldable, Show, Functor)
 
 data Dec a
     = Dec a (Name a) [Argument a] (Expr a)
     | DecAnno a (Name a) (Type a)
-    deriving (Foldable, Show)
+    deriving (Foldable, Show, Functor)
 
 data Expr a
     = EInt a Int
@@ -60,8 +61,8 @@ data Expr a
     | ENeg a (Expr a)
     | EBinOp a (Expr a) (Op a) (Expr a)
     | EOp a (Op a)
-    | ELetIn a (Dec a) (Expr a)
-    deriving (Foldable, Show)
+    | ELetIn a [Dec a] (Expr a)
+    deriving (Foldable, Show, Functor)
 
 data Op a
     = Plus a
@@ -76,4 +77,4 @@ data Op a
     | Ge a
     | And a
     | Or a
-    deriving (Foldable, Show)
+    deriving (Foldable, Show, Functor)

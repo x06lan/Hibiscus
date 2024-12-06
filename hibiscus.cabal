@@ -36,44 +36,18 @@ library
     , mtl
   default-language: Haskell2010
 
-executable hibiscus
-  main-is: Main.hs
+test-suite type-infer
+  type: exitcode-stdio-1.0
+  main-is: typeinfer.hs
   other-modules:
-      Paths_hibiscus
+      Hibiscus.Ast
+      Hibiscus.Type
   hs-source-dirs:
-      driver
+      test
+      src
   default-extensions:
       OverloadedStrings
   build-depends:
       base
     , bytestring
-    , hibiscus
-  default-language: Haskell2010
-
-test-suite type-check
-  type: exitcode-stdio-1.0
-  main-is: typecheck.hs
-  other-modules:
-      Paths_hibiscus
-  hs-source-dirs:
-      test
-  default-extensions:
-      OverloadedStrings
-  build-depends:
-      base
-    , hibiscus
-  default-language: Haskell2010
-
-test-suite type-infer
-  type: exitcode-stdio-1.0
-  main-is: typeinfer.hs
-  other-modules:
-      Paths_hibiscus
-  hs-source-dirs:
-      test
-  default-extensions:
-      OverloadedStrings
-  build-depends:
-      base
-    , hibiscus
   default-language: Haskell2010

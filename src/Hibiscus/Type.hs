@@ -7,8 +7,8 @@ import Data.Bifunctor (second)
 import Data.ByteString.Lazy.Char8 (pack)
 import Data.Foldable (foldlM, foldrM)
 import Data.Maybe (fromJust, fromMaybe)
-
-import Debug.Trace
+-- import Debug.Trace
+-- import GHC.Stack
 
 import Hibiscus.Ast
 
@@ -86,102 +86,118 @@ unify env t1 t2
 litType :: a -> String -> Type a
 litType a str = TVar a $ Name a $ pack str
 
--- NOTE: I guess this is a bad idea. so new plan: F a -> F (a, Type)
-data ExprWithType a = EWT (Expr a) (Type a) deriving (Show)
-data DecWithType a = DWT a (Name a) [Argument a] (ExprWithType a) (Type a) deriving (Show)
+class (Foldable f, Functor f) => Danceparty f where
+  {-# MINIMAL tellCompilerAutoInstance #-}
+  tellCompilerAutoInstance :: f a -> ()
+  addType :: Type a -> f a -> f (a, Type a)
+  addType t = fmap (\a -> (a, t))
+  forget :: f (a, Type a) -> f a
+  forget = fmap (\(a, t) -> a)
+  getType :: f (a, Type a) -> Type a
+  getType = snd . foldr1 (\aa bb -> bb) -- XXX: IDK what exectly foldr1 do
+instance Danceparty Expr where
+  tellCompilerAutoInstance _ = ()
+instance Danceparty Dec where
+  tellCompilerAutoInstance _ = ()
+instance Danceparty Argument where
+  tellCompilerAutoInstance _ = ()
+instance Danceparty Name where
+  tellCompilerAutoInstance _ = ()
 
-typeInfer :: (Show a) => Env a -> Expr a -> Result (Subst a, ExprWithType a)
-typeInfer env expr_ = case expr_ of
-  EVar _ name@(Name _ x) ->
+inferExpr :: (Show a) => Env a -> Expr a -> Result (Subst a, Expr (a, Type a))
+inferExpr env expr_ = case expr_ of
+  EVar a name@(Name _ x) ->
     case loookup name env of
-      Just t  -> return ([], EWT expr_ t)
+      Just t  -> return ([], addType t expr_)
       Nothing -> fail $ "Unbound variable: " ++ show name
-  ELetIn a dec expr -> 
+  ELetIn a decs expr -> 
     do
-      env0 <- foldlM typeCheck env [dec]
-      (s1, EWT expr' t') <- typeInfer env0 expr
-      return ([], EWT (ELetIn a dec expr') t')
+      (env0, decs') <- inferDec env decs
+      (s1, expr') <- inferExpr env0 expr
+      return (s1, ELetIn (a, getType expr') decs' expr')
   EApp a f x ->
     do
       -- tf = tx -> tv
-      (s1, EWT ef tf) <- typeInfer            env  f
-      (s2, EWT ex tx) <- typeInfer (subEnv s1 env) x
+      (s1, f') <- inferExpr            env  f
+      (s2, x') <- inferExpr (subEnv s1 env) x
+      let tf = getType f'
+      let tx = getType x'
       return (getNewUnkTy (subEnv (s1 ++ s2) env) a)
         >>= \(e0, tv) ->
           unify e0 (subTy s2 tf) (TArrow a tx tv)
             >>= \s3 -> do
               -- traceShow (prettyT tf) (pure ())
               -- FIXME: works now but I guess some duplicated symbel problem here
-              return (s1 ++ s2 ++ s3, EWT expr_ (subTy s3 tv))
-  EBinOp a e1 op e2 -> -- TODO: biop
-    let
-      (e', t) = getNewUnkTy env a
-    in
-      return ([], EWT expr_ t)
-  EOp a _ -> -- TODO: op
-    let
-      (e', t) = getNewUnkTy env a
-    in
-      return ([], EWT expr_ t)
-  EPar _ exp -> typeInfer env exp
-  EInt a _    -> return ([], EWT expr_ $ litType a "Int"   )
-  EFloat a _  -> return ([], EWT expr_ $ litType a "Float" )
-  EString a _ -> return ([], EWT expr_ $ litType a "String")
-  EUnit a     -> return ([], EWT expr_ $ TUnit a           )
+              return (s1 ++ s2 ++ s3, EApp (a, subTy (s1 ++ s2 ++ s3) tv) f' x')
+  -- EBinOp a e1 op e2 -> -- TODO: biop
+  --   let
+  --     (e', t) = getNewUnkTy env a
+  --   in
+  --     return ([], addType t expr_)
+  -- EOp a f -> -- TODO: op
+  --   do
+  --     tf <- lookup f env
+  --     return ([], addType tf expr_)
+  EPar _ exp -> inferExpr env exp
+  EInt a _    -> return ([], addType (litType a "Int"   ) expr_)
+  EFloat a _  -> return ([], addType (litType a "Float" ) expr_)
+  EString a _ -> return ([], addType (litType a "String") expr_)
+  EUnit a     -> return ([], addType (TUnit a           ) expr_)
   x -> fail $ "WIP: unsupported structure: " ++ show x
 
-typeCheck :: (Show a) => Env a -> Dec a -> Result (Env a)
-typeCheck env dec = case dec of
-  (DecAnno _ n t) ->
-    case loookup n env of
-      Just t' -> do
-        s1 <- unify env t t'
-        return (subEnv s1 env)
-      Nothing -> update env (n, t)
-  (Dec a name args expr) ->
-    do
-      (innerEnv, decT') <- getDecType env dec
-      (e0, decT) <-
-        case loookup name env of
-          Just annT -> do
-            s1 <- unify env decT' annT
-            return (subEnv s1 env, subTy s1 decT')
-          Nothing ->
-            update env (name, decT') >>= \e -> return (e, decT')
-      (s2, EWT _ texp) <- typeInfer innerEnv expr
-      ie' <- return $ subEnv s2 innerEnv
---        (ie',t3) <- return $ getNewUnkTy (subEnv s2 innerEnv) a
-      s3 <- unify ie' decT (curryT a (map (\(Argument _ n) -> fromJust $ loookup n ie') args) texp)
-      return $ subEnv (s2 ++ s3) e0
+-- typeCheck :: (Show a) => Env a -> Dec a -> Result (Env a)
+-- typeCheck env dec = case dec of
+--   (DecAnno _ n t) ->
+--     case loookup n env of
+--       Just t' -> do
+--         s1 <- unify env t t'
+--         return (subEnv s1 env)
+--       Nothing -> update env (n, t)
+--   (Dec a name args expr) ->
+--     do
+--       (innerEnv, decT') <- getDecType env dec
+--       (e0, decT) <-
+--         case loookup name env of
+--           Just annT -> do
+--             s1 <- unify env decT' annT
+--             return (subEnv s1 env, subTy s1 decT')
+--           Nothing ->
+--             update env (name, decT') >>= \e -> return (e, decT')
+--       (s2, texp) <- inferExpr innerEnv expr
+--       ie' <- return $ subEnv s2 innerEnv
+-- --        (ie',t3) <- return $ getNewUnkTy (subEnv s2 innerEnv) a
+--       s3 <- unify ie' decT (curryT a (map (\(Argument _ n) -> fromJust $ loookup n ie') args) texp)
+--       return $ subEnv (s2 ++ s3) e0
 
-doSmthAboutType :: (Show a) => [Dec a] -> Result (Env a)
-doSmthAboutType = foldlM typeCheck empty
+-- doSmthAboutType :: (Show a) => [Dec a] -> Result (Env a)
+-- doSmthAboutType = foldlM typeCheck empty
 
-bang :: (Show a) => Env a -> [Dec a] -> Result (Env a, [DecWithType a])
-bang env_ decs_ = foldlM h (env_,[]) decs_
+inferDec :: (Show a) => Env a -> [Dec a] -> Result (Env a, [Dec (a, Type a)])
+inferDec env_ decs_ = foldlM h (env_,[]) decs_
  where
-  --  h :: (Env, [DWT]) -> Dec -> Result (Env, [DWT])
-  h (env, ewts) dec = case dec of
+  h (env, acc) dec = case dec of
     (DecAnno _ n t) ->
       case loookup n env of
         Just t' -> do
           s1 <- unify env t t'
-          return (subEnv s1 env, ewts)
-        Nothing -> update env (n, t) >>= \e -> return (e, ewts)
+          return (subEnv s1 env, acc)
+        Nothing -> update env (n, t) >>= \e -> return (e, acc)
     (Dec a name args expr) ->
       do
-        (innerEnv, decT') <- getDecType env dec
-        (e0, decT) <-
+        (innerEnv, decT) <- getDecType env dec
+        (e0, uniT) <-
           case loookup name env of
-            Just annT -> do
-              s1 <- unify env decT' annT
-              return (subEnv s1 env, subTy s1 decT')
+            Just t -> do
+              s1 <- unify env decT t
+              return (subEnv s1 env, subTy s1 decT)
             Nothing ->
-              update env (name, decT') >>= \e -> return (e, decT')
-        (s2, ewt'@(EWT expr' texp)) <- typeInfer innerEnv expr
-        ie' <- return $ subEnv s2 innerEnv
-        s3 <- unify ie' decT (curryT a (map (\(Argument _ n) -> fromJust $ loookup n ie') args) texp)
-        return $ (subEnv (s2 ++ s3) e0, (DWT a name args ewt' (subTy (s2 ++ s3) decT)) : ewts)
+              update env (name, decT) >>= \e -> return (e, decT)
+        (s1, expr') <- inferExpr innerEnv expr
+        ie' <- return $ subEnv s1 innerEnv
+        let seriousGetType eeee (Argument _ n) = fromJust $ loookup n eeee
+        s2 <- unify ie' uniT (curryT a (map (seriousGetType ie') args) $ getType expr')
+        let dec' = Dec (a, getType expr') (addType uniT name) (map (\ar -> addType (seriousGetType ie' ar) ar) args) expr'
+        return $ (subEnv (s1 ++ s2) e0, dec' : acc)
 
-typeInfer' :: (Show a) => [Dec a] -> Result (Env a, [DecWithType a])
-typeInfer' = bang empty
+typeInfer' :: (Show a) => [Dec a] -> Result (Env a, [Dec (a, Type a)])
+typeInfer' = inferDec empty

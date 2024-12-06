@@ -25,27 +25,23 @@ library:
   - alex
   - happy
 
-executable:
-  main: Main.hs
-  source-dirs: driver
-  dependencies:
-  - base
-  - bytestring
-  - hibiscus
+# executable:
+#   main: Main.hs
+#   source-dirs: driver
+#   dependencies:
+#   - base
+#   - bytestring
+#   - hibiscus
 
 tests:
-  type-check:
-    main: typecheck.hs
-    source-dirs:
-    - test
-    dependencies:
-    - base
-    - hibiscus
   type-infer:
     main: typeinfer.hs
     source-dirs:
     - test
+    - src
+    other-modules:
+    - Hibiscus.Ast
+    - Hibiscus.Type
     dependencies:
     - base
-    - hibiscus
-
+    - bytestring
