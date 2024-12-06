@@ -8,21 +8,13 @@ import Ast
 import Typing
 import Asm
 import CodeGen
+import Inference
 
 
 main :: IO ()
 main = do
-    args <- getArgs
-    content <- BS.readFile $ head args
-    let ast = case runAlex content parseHibiscus of
-            Left err -> error err
-            Right ast -> ast
-    let result = CodeGen.genCode CodeGen.defaultConfig ast
-
-    let instructions = headerFields result ++  nameFields result ++ uniformsFields result ++ constFields result ++ functionFields result
-    
-    let lines = foldl (\acc x -> acc ++ show x ++"\n") "" instructions
-
-    writeFile "out.asm" lines
-
-
+  putStrLn "\n----- Parse Result ---------------"
+  content <- BS.readFile "./example/test.hi"
+  print $ runAlex content parseHibiscus
+  putStrLn "\n----- Infer Result ---------------"
+  print $ typeCheck empty =<< runAlex content parseHibiscus
