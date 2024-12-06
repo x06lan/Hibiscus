@@ -3,7 +3,7 @@ module Main where
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Hibiscus.Lexer (runAlex)
 import Hibiscus.Parser (parseHibiscus)
-import Hibiscus.Type (doSmthAboutType)
+import Hibiscus.Type (typeInfer')
 import System.Environment (getArgs)
 import Control.Monad (when)
 
@@ -20,6 +20,6 @@ main = do
     Right parseResult -> do
       print parseResult
       putStrLn "\n----- Type Check Result ---------------"
-      case doSmthAboutType parseResult of
+      case typeInfer' parseResult of
         Left err -> putStrLn $ "Check Error: " ++ err
         Right inferResult -> print inferResult

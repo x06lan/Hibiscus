@@ -25,13 +25,13 @@ library:
   - alex
   - happy
 
-# executable:
-#   main: Main.hs
-#   source-dirs: driver
-#   dependencies:
-#   - base
-#   - bytestring
-#   - hibiscus
+executable:
+  main: Main.hs
+  source-dirs: driver
+  dependencies:
+  - base
+  - bytestring
+  - hibiscus
 
 tests:
   type-infer:

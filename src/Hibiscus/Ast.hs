@@ -53,6 +53,7 @@ data Expr a
     | EFloat a Float
     | EVar a (Name a)
     | EString a ByteString
+    | EBool a Bool
     | EUnit a
     | EList a [Expr a]
     | EPar a (Expr a)
