@@ -8,6 +8,9 @@ data Name a
     = Name a ByteString
     deriving (Foldable, Show)
 
+instance Eq (Name a) where
+  (Name _ s1) == (Name _ s2) = s1 == s2
+
 data Type a
     = TVar a (Name a)
     | TPar a (Type a)
@@ -15,10 +18,20 @@ data Type a
     | TUnit a
     | TList a (Type a)
     | TArrow a (Type a) (Type a)
+    | TUnknown a Int -- FIXME: use `Either`
     deriving (Foldable, Show)
 
+instance Eq (Type a) where
+  (TVar _ n1)        == (TVar _ n2)        = n1 == n2
+  (TPar _ t1)        == t2                 = t1 == t2
+  t1                 == (TPar _ t2)        = t1 == t2
+  (TUnit _)          == (TUnit _)          = True
+  (TList _ t1)       == (TList _ t2)       = t1 == t2
+  (TArrow _ t1a t1b) == (TArrow _ t2a t2b) = t1a == t2a && t1b == t2b
+  _                  == _                  = False
+
 data Argument a
-    = Argument a (Name a) (Maybe (Type a))
+    = Argument a (Name a)
     deriving (Foldable, Show)
 
 data Dec a

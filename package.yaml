@@ -19,3 +19,23 @@ library:
   build-tools:
   - alex
   - happy
+
+tests:
+  typeinfer-playground:
+    main: bs2.hs
+    source-dirs:
+    - test
+    - src
+    other-modules:
+    - Ast
+    - Lexer
+    - Parser
+    verbatim:
+      type: exitcode-stdio-1.0 # detailed-0.9
+      default-language: null
+    dependencies:
+    - array
+    - base
+    - containers
+    - mtl
+    - bytestring
