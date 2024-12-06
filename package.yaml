@@ -34,8 +34,15 @@ executable:
   - hibiscus
 
 tests:
-  typeinfer-playground:
-    main: type.hs
+  type-check:
+    main: typecheck.hs
+    source-dirs:
+    - test
+    dependencies:
+    - base
+    - hibiscus
+  type-infer:
+    main: typeinfer.hs
     source-dirs:
     - test
     dependencies:

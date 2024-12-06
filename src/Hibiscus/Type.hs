@@ -86,56 +86,88 @@ unify env t1 t2
 litType :: a -> String -> Type a
 litType a str = TVar a $ Name a $ pack str
 
-typeInfer :: (Show a) => Env a -> Expr a -> Result (Subst a, Type a)
-typeInfer env expr_ = case expr_ of
-    EVar _ name@(Name _ x) ->
-      case loookup name env of
-        Just t  -> return ([], t)
-        Nothing -> fail $ "Unbound variable: " ++ show name
-    ELetIn a dec expr -> 
-     do
-       e0 <- typeCheck env [dec]
-       typeInfer e0 expr
-    EApp a f x ->
-      do
-        -- tf = tx -> tv
-        (s1, tf) <- typeInfer            env  f
-        (s2, tx) <- typeInfer (subEnv s1 env) x
-        return (getNewUnkTy (subEnv (s1 ++ s2) env) a)
-          >>= \(e0, tv) ->
-            unify e0 (subTy s2 tf) (TArrow a tx tv)
-              >>= \s3 -> do
-                -- traceShow (prettyT tf) (pure ())
-                -- FIXME: works now but I guess some duplicated symbel problem here
-                return (s1 ++ s2 ++ s3, subTy s3 tv)
-    EBinOp a e1 op e2 -> -- TODO: biop
-      let
-        (e', t) = getNewUnkTy env a
-      in
-        return ([], t)
-    EOp a _ -> -- TODO: op
-      let
-        (e', t) = getNewUnkTy env a
-      in
-        return ([], t)
-    EPar _ exp -> typeInfer env exp
-    EInt a _    -> return ([], litType a "Int"   )
-    EFloat a _  -> return ([], litType a "Float" )
-    EString a _ -> return ([], litType a "String")
-    EUnit a     -> return ([], TUnit a           )
-    x -> fail $ "WIP: unsupported structure: " ++ show x
+-- NOTE: I guess this is a bad idea. so new plan: F a -> F (a, Type)
+data ExprWithType a = EWT (Expr a) (Type a) deriving (Show)
+data DecWithType a = DWT a (Name a) [Argument a] (ExprWithType a) (Type a) deriving (Show)
 
-typeCheck :: (Show a) => Env a -> [Dec a] -> Result (Env a)
-typeCheck env_ decs_ = foldlM h env_ decs_
+typeInfer :: (Show a) => Env a -> Expr a -> Result (Subst a, ExprWithType a)
+typeInfer env expr_ = case expr_ of
+  EVar _ name@(Name _ x) ->
+    case loookup name env of
+      Just t  -> return ([], EWT expr_ t)
+      Nothing -> fail $ "Unbound variable: " ++ show name
+  ELetIn a dec expr -> 
+    do
+      env0 <- foldlM typeCheck env [dec]
+      (s1, EWT expr' t') <- typeInfer env0 expr
+      return ([], EWT (ELetIn a dec expr') t')
+  EApp a f x ->
+    do
+      -- tf = tx -> tv
+      (s1, EWT ef tf) <- typeInfer            env  f
+      (s2, EWT ex tx) <- typeInfer (subEnv s1 env) x
+      return (getNewUnkTy (subEnv (s1 ++ s2) env) a)
+        >>= \(e0, tv) ->
+          unify e0 (subTy s2 tf) (TArrow a tx tv)
+            >>= \s3 -> do
+              -- traceShow (prettyT tf) (pure ())
+              -- FIXME: works now but I guess some duplicated symbel problem here
+              return (s1 ++ s2 ++ s3, EWT expr_ (subTy s3 tv))
+  EBinOp a e1 op e2 -> -- TODO: biop
+    let
+      (e', t) = getNewUnkTy env a
+    in
+      return ([], EWT expr_ t)
+  EOp a _ -> -- TODO: op
+    let
+      (e', t) = getNewUnkTy env a
+    in
+      return ([], EWT expr_ t)
+  EPar _ exp -> typeInfer env exp
+  EInt a _    -> return ([], EWT expr_ $ litType a "Int"   )
+  EFloat a _  -> return ([], EWT expr_ $ litType a "Float" )
+  EString a _ -> return ([], EWT expr_ $ litType a "String")
+  EUnit a     -> return ([], EWT expr_ $ TUnit a           )
+  x -> fail $ "WIP: unsupported structure: " ++ show x
+
+typeCheck :: (Show a) => Env a -> Dec a -> Result (Env a)
+typeCheck env dec = case dec of
+  (DecAnno _ n t) ->
+    case loookup n env of
+      Just t' -> do
+        s1 <- unify env t t'
+        return (subEnv s1 env)
+      Nothing -> update env (n, t)
+  (Dec a name args expr) ->
+    do
+      (innerEnv, decT') <- getDecType env dec
+      (e0, decT) <-
+        case loookup name env of
+          Just annT -> do
+            s1 <- unify env decT' annT
+            return (subEnv s1 env, subTy s1 decT')
+          Nothing ->
+            update env (name, decT') >>= \e -> return (e, decT')
+      (s2, EWT _ texp) <- typeInfer innerEnv expr
+      ie' <- return $ subEnv s2 innerEnv
+--        (ie',t3) <- return $ getNewUnkTy (subEnv s2 innerEnv) a
+      s3 <- unify ie' decT (curryT a (map (\(Argument _ n) -> fromJust $ loookup n ie') args) texp)
+      return $ subEnv (s2 ++ s3) e0
+
+doSmthAboutType :: (Show a) => [Dec a] -> Result (Env a)
+doSmthAboutType = foldlM typeCheck empty
+
+bang :: (Show a) => Env a -> [Dec a] -> Result (Env a, [DecWithType a])
+bang env_ decs_ = foldlM h (env_,[]) decs_
  where
-  --  h :: Env a -> Dec a -> Result (Env a)
-  h env dec = case dec of
+  --  h :: (Env, [DWT]) -> Dec -> Result (Env, [DWT])
+  h (env, ewts) dec = case dec of
     (DecAnno _ n t) ->
       case loookup n env of
         Just t' -> do
           s1 <- unify env t t'
-          return (subEnv s1 env)
-        Nothing -> update env (n, t)
+          return (subEnv s1 env, ewts)
+        Nothing -> update env (n, t) >>= \e -> return (e, ewts)
     (Dec a name args expr) ->
       do
         (innerEnv, decT') <- getDecType env dec
@@ -146,14 +178,10 @@ typeCheck env_ decs_ = foldlM h env_ decs_
               return (subEnv s1 env, subTy s1 decT')
             Nothing ->
               update env (name, decT') >>= \e -> return (e, decT')
-        (s2, texp) <- typeInfer innerEnv expr
+        (s2, ewt'@(EWT expr' texp)) <- typeInfer innerEnv expr
         ie' <- return $ subEnv s2 innerEnv
---        (ie',t3) <- return $ getNewUnkTy (subEnv s2 innerEnv) a
         s3 <- unify ie' decT (curryT a (map (\(Argument _ n) -> fromJust $ loookup n ie') args) texp)
-        return $ subEnv (s2 ++ s3) e0
+        return $ (subEnv (s2 ++ s3) e0, (DWT a name args ewt' (subTy (s2 ++ s3) decT)) : ewts)
 
-doSmthAboutType :: (Show a) => [Dec a] -> Result (Env a)
-doSmthAboutType = typeCheck empty
-
--- bang :: (Show a) => Env a -> [Dec a] -> Result [Dec a]
--- bang env decs = undefined
+typeInfer' :: (Show a) => [Dec a] -> Result (Env a, [DecWithType a])
+typeInfer' = bang empty
