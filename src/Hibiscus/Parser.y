@@ -1,7 +1,7 @@
 -- vim: set ft=haskell
 {
 {-# LANGUAGE DeriveFoldable #-}
-module Parser
+module Hibiscus.Parser
   ( parseHibiscus
   ) where
 
@@ -9,8 +9,8 @@ import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.Maybe (fromJust)
 import Data.Monoid (First (..))
 
-import qualified Lexer as L
-import Ast
+import qualified Hibiscus.Lexer as L
+import Hibiscus.Ast
 }
 
 %name parseHibiscus decs

@@ -2,7 +2,7 @@
 
 {
 -- At the top of the file, we define the module and its imports, similarly to Haskell.
-module Lexer
+module Hibiscus.Lexer
   ( -- * Invoking Alex
     Alex
   , AlexPosn (..)

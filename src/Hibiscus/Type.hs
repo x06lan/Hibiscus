@@ -1,24 +1,16 @@
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 
-{-# HLINT ignore "Eta reduce" #-}
-module Main where
+module Hibiscus.Type where
 
 import Data.Bifunctor (second)
-import Data.Maybe
-import qualified Data.ByteString.Lazy.Char8 as BS
+import Data.ByteString.Lazy.Char8 (pack)
 import Data.Foldable (foldlM, foldrM)
-import Data.Map (Map)
-import Data.Maybe (fromMaybe, maybe)
+import Data.Maybe (fromJust, fromMaybe)
 
 import Debug.Trace
 
-import Ast
-import Lexer
-import Parser
-import System.Environment (getArgs)
+import Hibiscus.Ast
 
 type Result = Either String
 
@@ -92,7 +84,7 @@ unify env t1 t2
 -- foldlM :: (Foldable t, Monad m) => (b -> a -> m b) -> b -> t a -> m b
 
 litType :: a -> String -> Type a
-litType a str = TVar a $ Name a $ BS.pack str
+litType a str = TVar a $ Name a $ pack str
 
 typeInfer :: (Show a) => Env a -> Expr a -> Result (Subst a, Type a)
 typeInfer env expr_ = case expr_ of
@@ -160,10 +152,8 @@ typeCheck env_ decs_ = foldlM h env_ decs_
         s3 <- unify ie' decT (curryT a (map (\(Argument _ n) -> fromJust $ loookup n ie') args) texp)
         return $ subEnv (s2 ++ s3) e0
 
-main :: IO ()
-main = do
-  putStrLn "\n----- Parse Result ---------------"
-  content <- BS.readFile "./example/test.hi"
-  print $                     runAlex content parseHibiscus
-  putStrLn "\n----- Infer Result ---------------"
-  print $ typeCheck empty =<< runAlex content parseHibiscus
+doSmthAboutType :: (Show a) => [Dec a] -> Result (Env a)
+doSmthAboutType = typeCheck empty
+
+-- bang :: (Show a) => Env a -> [Dec a] -> Result [Dec a]
+-- bang env decs = undefined

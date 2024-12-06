@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveFoldable #-}
 
-module Ast where
+module Hibiscus.Ast where
 
 import Data.ByteString.Lazy.Char8 (ByteString, unpack)
 
