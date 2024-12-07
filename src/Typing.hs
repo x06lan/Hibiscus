@@ -1,5 +1,5 @@
-
 module Typing where
+
 import Asm (StorageClass)
 
 -- import qualified Data.Set as Set
@@ -15,11 +15,12 @@ data DataType
   | DTypePointer DataType StorageClass -- pointer type
   | DTypeStruct String [DataType] -- name, fields
   | DTypeFunction DataType [DataType] -- return type, arguments
+  deriving (Eq)
 
 instance Show DataType where
   show DTypeVoid = "void"
   show DTypeBool = "bool"
-  show (DTypeInt size sign) = 
+  show (DTypeInt size sign) =
     case sign of
       0 -> "ui" ++ show size
       1 -> "i" ++ show size
@@ -28,9 +29,12 @@ instance Show DataType where
   show (DTypeVector size baseType) = "vec" ++ show size ++ "_" ++ show baseType
   show (DTypeMatrix col baseType) = "mat" ++ show col ++ "_" ++ show baseType
   show (DTypeArray size baseType) = "arr_" ++ show size ++ "_" ++ show baseType
-  show (DTypePointer baseType storage) = "ptr_"  ++ show baseType ++ "_" ++ show storage 
+  show (DTypePointer baseType storage) = "ptr_" ++ show baseType ++ "_" ++ show storage
   show (DTypeStruct name fields) = "struct_" ++ name ++ show fields
   show (DTypeFunction returnType args) = "func_" ++ show returnType ++ "_" ++ show args
+
+bool :: DataType
+bool = DTypeBool
 
 uint32 :: DataType
 uint32 = DTypeInt 32 0

@@ -8,52 +8,60 @@ module CodeGen where
 import Asm
 import Ast
 import qualified Data.ByteString.Lazy.Char8 as BS
+import Data.Fixed (Uni)
 import qualified Data.Map as Map
+import Inference
 import Lexer
 import Parser
 import Typing
 
 -- import Data.IntMap (fromList, foldlWithKey)
 
-type Variable = (String, DataType)
+type Variable = (OpId, DataType)
+
+type Uniform = (String, DataType, StorageClass, Int)
 
 data Config = Dict
-  { capability :: Capability
-  , extension :: String
-  , memoryModel :: MemoryModel
-  , addressModel :: AddressingModel
-  , executionMode :: ExecutionMode
-  , shaderType :: ExecutionModel
-  , source :: (SourceLanguage, Int)
-  , entryPoint :: String
-  , uniforms :: [(String, DataType, StorageClass, Int)] -- (name, type, position)
+  { capability :: Capability,
+    extension :: String,
+    memoryModel :: MemoryModel,
+    addressModel :: AddressingModel,
+    executionMode :: ExecutionMode,
+    shaderType :: ExecutionModel,
+    source :: (SourceLanguage, Int),
+    entryPoint :: String,
+    uniforms :: [Uniform] -- (name, type, position)
   }
 
-type VariableOpIdMap = Map.Map String OpId
+type OpIdMap = Map.Map String OpId
 
-data CodeGenState = CodeGenState
-  { idCount :: Int
-  , idMap :: VariableOpIdMap
-  , headerFields :: [Instruction]
-  , nameFields :: [Instruction]
-  , uniformsFields :: [Instruction]
-  , constFields :: [Instruction]
-  , functionFields :: [Instruction]
+data Instructions = Instructions
+  { headerFields :: [Instruction],
+    nameFields :: [Instruction],
+    uniformsFields :: [Instruction],
+    constFields :: [Instruction],
+    functionFields :: [[Instruction]] -- [function]
+  }
+  deriving (Show)
+
+data State = State
+  { idCount :: Int,
+    idMap :: OpIdMap
   }
   deriving (Show)
 
 defaultConfig :: Config
 defaultConfig =
   Dict
-    { capability = Shader
-    , addressModel = Logical
-    , memoryModel = GLSL450
-    , source = (GLSL, 450)
-    , shaderType = Fragment
-    , executionMode = OriginUpperLeft
-    , extension = "GLSL.std.450"
-    , entryPoint = "main"
-    , uniforms = [("uv", vector2, Input, 0), ("outColor", vector4, Output, 0)]
+    { capability = Shader,
+      addressModel = Logical,
+      memoryModel = GLSL450,
+      source = (GLSL, 450),
+      shaderType = Fragment,
+      executionMode = OriginUpperLeft,
+      extension = "GLSL.std.450",
+      entryPoint = "main",
+      uniforms = [("uv", vector2, Input, 0), ("outColor", vector4, Output, 0)]
     }
 
 data IdType
@@ -61,7 +69,6 @@ data IdType
   | IdTypeConstant Literal -- done
   | IdTypeVariable String -- tbd
   | IdTypeFunction String DataType -- name return type, arguments --tbd
-  | IdTypeCodeSegment Range -- tbd
   deriving (Show)
 
 idTypeToKey :: IdType -> String
@@ -70,264 +77,368 @@ idTypeToKey d = case d of
   IdTypeConstant v -> "const " ++ show v
   IdTypeVariable s -> "var " ++ s
   IdTypeFunction s t -> "func " ++ s ++ " " ++ show t
-  IdTypeCodeSegment r -> "code segment " ++ show r
 
-findId :: IdType -> VariableOpIdMap -> Maybe OpId
+findId :: IdType -> OpIdMap -> Maybe OpId
 findId d = Map.lookup (idTypeToKey d)
 
-insertId :: IdType -> Int -> VariableOpIdMap -> (Int, VariableOpIdMap)
-insertId key count m =
-  case findId key m of
-    Just _ -> (count, m)
-    Nothing ->
-      ( count
-      , Map.insert
-          (idTypeToKey key)
-          ( case key of
-              IdTypeDataType t -> IdName (show t)
-              IdTypeConstant l ->
-                let name = case l of
-                      LUint i -> "uint_" ++ show i
-                      LInt i -> "int_" ++ show i
-                      LFloat f -> "float_" ++ show f
-                 in IdName name
-              IdTypeVariable s -> IdName s
-              IdTypeFunction s t ->
-                IdName
-                  ( s
-                      ++ ( case t of
-                            DTypeFunction returnType [] -> ""
-                            DTypeFunction returnType argTypes -> "_" ++ (show argTypes)
-                            _ -> error "Invalid function type"
-                         )
+insertId :: IdType -> State -> State
+insertId key state =
+  let m = idMap state
+      count = idCount state
+   in case findId key m of
+        Just _ -> state
+        Nothing ->
+          state
+            { idMap =
+                Map.insert
+                  (idTypeToKey key)
+                  ( case key of
+                      IdTypeDataType t -> IdName (show t)
+                      IdTypeConstant l ->
+                        let name = case l of
+                              LUint i -> "uint_" ++ show i
+                              LInt i -> "int_" ++ show i
+                              LFloat f -> "float_" ++ show f
+                         in IdName name
+                      IdTypeVariable s -> IdName s
+                      IdTypeFunction s t ->
+                        IdName
+                          ( s
+                              ++ ( case t of
+                                     DTypeFunction returnType [] -> ""
+                                     DTypeFunction returnType argTypes -> "_" ++ (show argTypes)
+                                     _ -> error "Invalid function type"
+                                 )
+                          )
                   )
-              IdTypeCodeSegment r -> Id (count + 1)
-          )
-          m
-      )
+                  m
+            }
 
-searchTypeId :: VariableOpIdMap -> DataType -> OpId
-searchTypeId m dt = case findId (IdTypeDataType dt) m of
+searchTypeId :: State -> DataType -> OpId
+searchTypeId m dt = case findId (IdTypeDataType dt) (idMap m) of
   Just x -> x
   Nothing -> error (show dt ++ " type not found")
 
-genTypeCode :: CodeGenState -> DataType -> CodeGenState
-genTypeCode state dtype =
+generateType :: State -> DataType -> (State, [Instruction])
+generateType state dtype =
   case findId (IdTypeDataType dtype) (idMap state) of
-    Just _ -> state
+    Just _ -> (state, [])
     Nothing ->
-      let
-        state' = case dtype of
-          DTypeVoid -> state
-          DTypeBool -> state
-          DTypeInt _ _ -> state
-          DTypeFloat _ -> state
-          DTypeVector _ baseType -> genTypeCode state baseType
-          DTypeMatrix _ baseType -> genTypeCode state baseType
-          DTypeArray _ baseType -> genTypeCode state baseType
-          DTypePointer baseType _ -> genTypeCode state baseType
-          DTypeStruct _ fields -> foldl genTypeCode state fields
-          DTypeFunction returnType argsType -> foldl genTypeCode (genTypeCode state returnType) argsType
+      let (state', instruction) = case dtype of
+            DTypeVoid -> (state, [])
+            DTypeBool -> (state, [])
+            DTypeInt _ _ -> (state, [])
+            DTypeFloat _ -> (state, [])
+            DTypeVector _ baseType -> generateType state baseType
+            DTypeMatrix _ baseType -> generateType state baseType
+            DTypeArray _ baseType -> generateType state baseType
+            DTypePointer baseType _ -> generateType state baseType
+            DTypeStruct _ fields -> foldl (\(s, instrs) field -> let (s', instrs') = generateType s field in (s', instrs ++ instrs')) (state, []) fields
+            DTypeFunction returnType argsType -> foldl (\(s, instrs) t -> let (s', instrs') = generateType s t in (s', instrs ++ instrs')) (state, []) (returnType : argsType)
+          state'' = insertId (IdTypeDataType dtype) state'
+          searchTypeId' = searchTypeId state''
+          typeId = searchTypeId' dtype
 
-        (newCount, newMap) = insertId (IdTypeDataType dtype) (idCount state') (idMap state')
-
-        searchTypeId' = searchTypeId newMap
-
-        typeId = searchTypeId' dtype
-
-        typeInstruction =
-          [ Instruction
-              ( Just typeId
-              , case dtype of
-                  DTypeVoid -> OpTypeVoid
-                  DTypeBool -> OpTypeBool
-                  DTypeInt size sign -> OpTypeInt size sign
-                  DTypeFloat size -> OpTypeFloat size
-                  DTypeVector size baseType ->
-                    OpTypeVector (searchTypeId' baseType) size
-                  DTypeMatrix col baseType ->
-                    OpTypeMatrix (searchTypeId' baseType) col
-                  DTypeArray size baseType ->
-                    OpTypeArray (searchTypeId' baseType) size
-                  DTypePointer baseType storage ->
-                    OpTypePointer (searchTypeId' baseType) storage
-                  DTypeStruct name baseTypes ->
-                    OpTypeStruct (ShowList (map searchTypeId' baseTypes))
-                  DTypeFunction returnType argTypes ->
-                    OpTypeFunction (searchTypeId' returnType) (ShowList (map searchTypeId' argTypes))
-              )
-          ]
-        updatedState =
-          state'
-            { idCount = newCount
-            , idMap = newMap
-            , constFields = constFields state' ++ typeInstruction
-            }
-       in
-        updatedState
-
-genConstCode :: CodeGenState -> Literal -> CodeGenState
-genConstCode state v =
-  let
-    dtype = case v of
-      LUint _ -> DTypeInt 32 0
-      LInt _ -> DTypeInt 32 1
-      LFloat _ -> DTypeFloat 32
-    state' = genTypeCode state dtype
-    (newCount, newMap) = insertId (IdTypeConstant v) (idCount state') (idMap state')
-    typeId = searchTypeId newMap dtype
-
-    constId = case findId (IdTypeConstant v) newMap of
-      Just x -> x
-      Nothing -> error (show v ++ " const not found")
-
-    constInstruction = [Instruction (Just constId, OpConstant typeId v)]
-   in
-    state'
-      { idCount = newCount
-      , idMap = newMap
-      , constFields = constFields state' ++ constInstruction
-      }
-
-genUniformCode :: CodeGenState -> [(String, DataType, StorageClass, Int)] -> CodeGenState
-genUniformCode =
-  foldl
-    ( \accState (name, dtype, storage, _) ->
-        let
-          state' = genTypeCode accState (DTypePointer dtype storage)
-          pointerTypeId = case findId (IdTypeDataType (DTypePointer dtype storage)) (idMap state') of
-            Just x -> x
-            Nothing -> error (show dtype ++ show storage ++ "Pointer base not found")
-
-          variableInstruction = [Instruction (Just (IdName name), OpVariable pointerTypeId storage)]
-          nameInstruction = [Instruction (Nothing, OpName (IdName name) name)]
-          uniformsInstruction = [Instruction (Nothing, OpDecorate (IdName name) (Location 0))]
-
+          typeInstruction =
+            [ Instruction
+                ( Just typeId,
+                  case dtype of
+                    DTypeVoid -> OpTypeVoid
+                    DTypeBool -> OpTypeBool
+                    DTypeInt size sign -> OpTypeInt size sign
+                    DTypeFloat size -> OpTypeFloat size
+                    DTypeVector size baseType ->
+                      OpTypeVector (searchTypeId' baseType) size
+                    DTypeMatrix col baseType ->
+                      OpTypeMatrix (searchTypeId' baseType) col
+                    DTypeArray size baseType ->
+                      OpTypeArray (searchTypeId' baseType) size
+                    DTypePointer baseType storage ->
+                      OpTypePointer (searchTypeId' baseType) storage
+                    DTypeStruct name baseTypes ->
+                      OpTypeStruct (ShowList (map searchTypeId' baseTypes))
+                    DTypeFunction returnType argTypes ->
+                      OpTypeFunction (searchTypeId' returnType) (ShowList (map searchTypeId' argTypes))
+                )
+            ]
           updatedState =
-            state'
-              { nameFields = nameFields state' ++ nameInstruction
-              , uniformsFields = uniformsFields state' ++ uniformsInstruction
-              , constFields = constFields state' ++ variableInstruction
+            state''
+              { idCount = idCount state'' + 1,
+                idMap = idMap state''
               }
-         in
-          updatedState
+       in (updatedState, instruction ++ typeInstruction)
+
+generateConst :: State -> Literal -> (State, OpId, [Instruction])
+generateConst state v =
+  let dtype = case v of
+        LBool _ -> DTypeBool
+        LUint _ -> DTypeInt 32 0
+        LInt _ -> DTypeInt 32 1
+        LFloat _ -> DTypeFloat 32
+      (state', typeInstruction) = generateType state dtype
+      state'' = insertId (IdTypeConstant v) state'
+      typeId = searchTypeId state'' dtype
+
+      constId = case findId (IdTypeConstant v) (idMap state'') of
+        Just x -> x
+        Nothing -> error (show v ++ " const not found")
+      constInstruction = [Instruction (Just constId, OpConstant typeId v)]
+   in (state'', constId, typeInstruction ++ constInstruction)
+
+generateUniform :: (State, Instructions) -> [Uniform] -> (State, Instructions)
+generateUniform (state, inst) =
+  foldl
+    ( \(accState, accInst) (name, dtype, storage, _) ->
+        let (state', typeInstructions) = generateType accState (DTypePointer dtype storage)
+            pointerTypeId = case findId (IdTypeDataType (DTypePointer dtype storage)) (idMap state') of
+              Just x -> x
+              Nothing -> error (show dtype ++ show storage ++ "Pointer base not found")
+
+            variableInstruction = [Instruction (Just (IdName name), OpVariable pointerTypeId storage)]
+            nameInstruction = [Instruction (Nothing, OpName (IdName name) name)]
+            uniformsInstruction = [Instruction (Nothing, OpDecorate (IdName name) (Location 0))]
+
+            updatedInst =
+              accInst
+                { nameFields = nameFields accInst ++ nameInstruction,
+                  uniformsFields = uniformsFields accInst ++ uniformsInstruction,
+                  constFields = constFields accInst ++ variableInstruction
+                }
+         in (state', updatedInst)
     )
+    (state, inst)
 
-genInitCode :: Config -> CodeGenState
-genInitCode h =
-  genUniformCode state (uniforms h)
- where
-  startId = 0
-  headInstruction =
-    [ Instruction (Nothing, OpCapability (capability h))
-    , Instruction (Just (Id (startId + 1)), OpExtInstImport (extension h))
-    , Instruction (Nothing, OpMemoryModel (addressModel h) (memoryModel h))
-    , Instruction (Nothing, OpEntryPoint (shaderType h) (IdName (entryPoint h)) (entryPoint h) (ShowList (map (\(name, _, _, _) -> IdName name) (uniforms h))))
-    , Instruction (Nothing, OpExecutionMode (IdName (entryPoint h)) (executionMode h))
-    , Instruction (Nothing, OpSource (fst (source h)) (snd (source h)))
-    ]
+generateInit :: Config -> (State, Instructions)
+generateInit h =
+  (state, inst)
+  where
+    startId = 0
+    headInstruction =
+      [ Instruction (Nothing, OpCapability (capability h)),
+        Instruction (Just (Id (startId + 1)), OpExtInstImport (extension h)),
+        Instruction (Nothing, OpMemoryModel (addressModel h) (memoryModel h)),
+        Instruction (Nothing, OpEntryPoint (shaderType h) (IdName (entryPoint h)) (entryPoint h) (ShowList (map (\(name, _, _, _) -> IdName name) (uniforms h)))),
+        Instruction (Nothing, OpExecutionMode (IdName (entryPoint h)) (executionMode h)),
+        Instruction (Nothing, OpSource (fst (source h)) (snd (source h)))
+      ]
 
-  idMap = Map.insert ("extension " ++ extension h) (Id (startId + 1)) Map.empty
-  idCount = startId + 1
-  constInstruction = []
-  state =
-    CodeGenState
-      { idCount = idCount
-      , idMap = idMap
-      , headerFields = Instruction (Nothing, Comment "Generated Header") : headInstruction
-      , nameFields = [Instruction (Nothing, Comment "Generated Names")]
-      , uniformsFields = [Instruction (Nothing, Comment "Generated Uniforms")]
-      , constFields = [Instruction (Nothing, Comment "Generated Constants And Type")]
-      , functionFields = [Instruction (Nothing, Comment "Generated Functions")]
-      }
-
-genVariableCode :: CodeGenState -> Variable -> CodeGenState
-genVariableCode state (name, dtype) =
-  let
-    state' = genTypeCode state dtype
-    (newCount, newMap) = insertId (IdTypeVariable name) (idCount state') (idMap state')
-    typeId = case findId (IdTypeDataType dtype) newMap of
-      Just x -> x
-      Nothing -> error (show dtype ++ " type not found")
-
-    variableInstruction = [Instruction (Just (IdName name), OpVariable typeId Private)]
-    nameInstruction = [Instruction (Nothing, OpName (IdName name) name)]
-    updatedState =
-      state'
-        { idCount = newCount
-        , idMap = newMap
-        , nameFields = nameFields state' ++ nameInstruction
-        , constFields = constFields state' ++ variableInstruction
+    idMap = Map.insert ("extension " ++ extension h) (Id (startId + 1)) Map.empty
+    idCount = startId + 1
+    constInstruction = []
+    state =
+      State
+        { idCount = idCount,
+          idMap = idMap
         }
-   in
-    updatedState
+    inst =
+      Instructions
+        { headerFields = [Instruction (Nothing, Comment "header fields")] ++ headInstruction,
+          nameFields = [Instruction (Nothing, Comment "Name fields")],
+          uniformsFields = [Instruction (Nothing, Comment "uniform fields")],
+          constFields = [Instruction (Nothing, Comment "Const fields")],
+          functionFields = [[Instruction (Nothing, Comment "functions fields")]]
+        }
 
-genFunctionCode :: CodeGenState -> Dec Range -> CodeGenState
-genFunctionCode state (DecAnno r name t) =
-  state
-genFunctionCode state (Dec range name args expr) =
-  let
-    funcName = case name of
-      Name _ n -> BS.unpack n
-    -- Process the function arguments
-    t = Just (TVar (Range (AlexPn 0 0 0) (AlexPn 0 0 0)) (Name (Range (AlexPn 0 0 0) (AlexPn 0 0 0)) "int")) -- TODO: Change this to the actual return type
-    typeConvert t =
-      ( case t of
-          Just (TVar _ (Name _ "int")) -> int32
-          Just (TVar _ (Name _ "float")) -> float32
-          Just _ -> error "Invalid type"
-          Nothing -> error "No type"
-      )
-    (argsTypes, returnType) = case funcName of
-      "main" ->
-        ( []
-        , DTypeVoid
-        )
-      _ ->
-        ( map (\(Argument _ (Name _ name)) -> (typeConvert t, name)) args
-        , typeConvert (Just (TVar (Range (AlexPn 0 0 0) (AlexPn 0 0 0)) (Name (Range (AlexPn 0 0 0) (AlexPn 0 0 0)) "int"))) -- TODO: Change this to the actual return type
-        )
+-- genFunctionCode :: (State, Instructions) -> Dec Range -> (State, Instructions)
+-- genFunctionCode state (DecAnno r name t) =
+--   state
+-- genFunctionCode (state, instruction) (Dec range name args expr) =
+--   let funcName = case name of
+--         Name _ n -> BS.unpack n
+--       -- Process the function arguments
+--       t = Just (TVar (Range (AlexPn 0 0 0) (AlexPn 0 0 0)) (Name (Range (AlexPn 0 0 0) (AlexPn 0 0 0)) "int")) -- TODO: Change this to the actual return type
+--       typeConvert t =
+--         ( case t of
+--             Just (TVar _ (Name _ "int")) -> int32
+--             Just (TVar _ (Name _ "float")) -> float32
+--             Just _ -> error "Invalid type"
+--             Nothing -> error "No type"
+--         )
+--       (argsTypes, returnType) = case funcName of
+--         "main" ->
+--           ( [],
+--             DTypeVoid
+--           )
+--         _ ->
+--           ( map (\(Argument _ (Name _ name)) -> (typeConvert t, name)) args,
+--             typeConvert (Just (TVar (Range (AlexPn 0 0 0) (AlexPn 0 0 0)) (Name (Range (AlexPn 0 0 0) (AlexPn 0 0 0)) "int"))) -- TODO: Change this to the actual return type
+--           )
 
-    argsPointer = map (\(t, name) -> (DTypePointer t Function, name)) argsTypes
-    functionType = DTypeFunction returnType (map fst argsPointer)
+--       argsPointer = map (\(t, name) -> (DTypePointer t Function, name)) argsTypes
+--       functionType = DTypeFunction returnType (map fst argsPointer)
 
-    key = IdTypeFunction funcName functionType
-   in
-    case findId key (idMap state) of
-      Just _ -> state
-      Nothing ->
-        let
-          state' = genTypeCode state functionType
+--       key = IdTypeFunction funcName functionType
+--    in case findId key (idMap state) of
+--         Just _ -> state
+--         Nothing ->
+--           let state' = generateType state functionType
 
-          typeId = searchTypeId (idMap state') functionType
-          returnTypeId = searchTypeId (idMap state') returnType
+--               typeId = searchTypeId (idMap state') functionType
+--               returnTypeId = searchTypeId (idMap state') returnType
 
-          (newCount, newMap) = insertId key (idCount state') (idMap state')
+--               state'' = insertId key state'
+--            in -- funcId = case findId key newMap of
+--               --   Just x -> x
+--               --   Nothing -> error (show key ++ " function not found")
+--               -- -- Nothing -> error (Map.foldlWithKey   (\acc k v -> acc ++"\n"++ show k ++" @ "++ show v) "" newMap)
 
-          funcId = case findId key newMap of
-            Just x -> x
-            Nothing -> error (show key ++ " function not found")
-          -- Nothing -> error (Map.foldlWithKey   (\acc k v -> acc ++"\n"++ show k ++" @ "++ show v) "" newMap)
+--               -- functionParameterInstruction = map (\(t, name) -> Instruction (Just (IdName (BS.unpack name)), OpFunctionParameter (searchTypeId newMap t))) argsPointer
+--               -- startInstruction = [Instruction (Just funcId, OpFunction returnTypeId None typeId)]
 
-          functionParameterInstruction = map (\(t, name) -> Instruction (Just (IdName (BS.unpack name)), OpFunctionParameter (searchTypeId newMap t))) argsPointer
-          startInstruction = [Instruction (Just funcId, OpFunction returnTypeId None typeId)]
+--               -- functionInstruction = startInstruction ++ functionParameterInstruction ++ [Instruction (Nothing, OpFunctionEnd)]
 
-          functionInstruction = startInstruction ++ functionParameterInstruction ++ [Instruction (Nothing, OpFunctionEnd)]
+--               -- constInstruction = []
+--               -- state'' =
+--               --   state'
+--               --     { idCount = idCount state',
+--               --       idMap = newMap
+--               --     }
+--               (state'', instruction {functionFields = functionFields instruction ++ functionInstruction})
 
-          constInstruction = []
-         in
-          state'
-            { idCount = idCount state'
-            , idMap = newMap
-            , constFields = constFields state' ++ constInstruction
-            , functionFields = functionFields state' ++ functionInstruction
-            }
+generateNegOp :: State -> Variable -> (State, Variable, [Instruction], [Instruction])
+generateNegOp state v =
+  let id = Id ((idCount state) + 1)
+      (e, t, typeId) = (fst v, snd v, searchTypeId state (snd v))
+      state' =
+        state
+          { idCount = idCount state + 1
+          }
+      (resultType, instruction) =
+        case t of
+          bool ->
+            (bool, Instruction (Just id, OpLogicalNot typeId e))
+          int32 ->
+            (int32, Instruction (Just id, OpSNegate typeId e))
+          float32 ->
+            (float32, Instruction (Just id, OpFNegate typeId e))
+          _ -> error "Not implemented"
+      inst = [instruction]
+      result = (id, resultType)
+   in (state', result, [], inst)
 
-genCode :: Config -> [Dec Range] -> CodeGenState
-genCode config decs =
-  let header = genInitCode config
-      functions = foldl genFunctionCode header decs
-      -- test = genConstCode functions (LInt 1)
-      -- test =genTypeCode functions (DTypeVoid)
-      test = functions
-   in test
+generateBinOp :: State -> Variable -> Op Range -> Variable -> (State, Variable, [Instruction], [Instruction])
+generateBinOp state v1 op v2 =
+  let id = Id (idCount state + 1)
+      (e1, t1, typeId1) = (fst v1, snd v1, searchTypeId state (snd v1))
+      (e2, t2, typeId2) = (fst v2, snd v2, searchTypeId state (snd v2))
+      state' =
+        state
+          { idCount = idCount state + 1
+          }
+      (resultType, instruction) =
+        case (t1, t2) of
+          (t1, t2) | t1 == bool && t2 == bool ->
+            case op of
+              Ast.Eq _ -> (bool, Instruction (Just id, OpLogicalEqual typeId1 e1 e2))
+              Ast.Neq _ -> (bool, Instruction (Just id, OpLogicalNotEqual typeId1 e1 e2))
+              Ast.And _ -> (bool, Instruction (Just id, OpLogicalAnd typeId1 e1 e2))
+              Ast.Or _ -> (bool, Instruction (Just id, OpLogicalOr typeId1 e1 e2))
+              _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
+          (t1, t2) | t1 == int32 && t2 == int32 ->
+            case op of
+              Ast.Plus _ -> (int32, Instruction (Just id, OpIAdd typeId1 e1 e2))
+              Ast.Minus _ -> (int32, Instruction (Just id, OpISub typeId1 e1 e2))
+              Ast.Times _ -> (int32, Instruction (Just id, OpIMul typeId1 e1 e2))
+              Ast.Divide _ -> (int32, Instruction (Just id, OpSDiv typeId1 e1 e2))
+              Ast.Eq _ -> (bool, Instruction (Just id, OpIEqual typeId1 e1 e2))
+              Ast.Neq _ -> (bool, Instruction (Just id, OpINotEqual typeId1 e1 e2))
+              Ast.Lt _ -> (bool, Instruction (Just id, OpSLessThan typeId1 e1 e2))
+              Ast.Le _ -> (bool, Instruction (Just id, OpSLessThanEqual typeId1 e1 e2))
+              Ast.Gt _ -> (bool, Instruction (Just id, OpSGreaterThan typeId1 e1 e2))
+              Ast.Ge _ -> (bool, Instruction (Just id, OpSGreaterThanEqual typeId1 e1 e2))
+              _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
+          (t1, t2) | t1 == int32 && t2 == float32 -> error "Not implemented"
+          (t1, t2) | t1 == float32 && t2 == int32 -> error "Not implemented"
+          (t1, t2) | t1 == float32 && t2 == float32 ->
+            case op of
+              Ast.Plus _ -> (float32, Instruction (Just id, OpFAdd typeId1 e1 e2))
+              Ast.Minus _ -> (float32, Instruction (Just id, OpFSub typeId1 e1 e2))
+              Ast.Times _ -> (float32, Instruction (Just id, OpFMul typeId1 e1 e2))
+              Ast.Divide _ -> (float32, Instruction (Just id, OpFDiv typeId1 e1 e2))
+              Ast.Eq _ -> (bool, Instruction (Just id, OpFOrdEqual typeId1 e1 e2))
+              Ast.Neq _ -> (bool, Instruction (Just id, OpFOrdNotEqual typeId1 e1 e2))
+              Ast.Lt _ -> (bool, Instruction (Just id, OpFOrdLessThan typeId1 e1 e2))
+              Ast.Le _ -> (bool, Instruction (Just id, OpFOrdLessThanEqual typeId1 e1 e2))
+              Ast.Gt _ -> (bool, Instruction (Just id, OpFOrdGreaterThan typeId1 e1 e2))
+              Ast.Ge _ -> (bool, Instruction (Just id, OpFOrdGreaterThanEqual typeId1 e1 e2))
+          (t1, t2) | (t1 == vector2 || t1 == vector3 || t1 == vector4) && (t2 == int32 || t2 == float32) ->
+            case op of
+              Ast.Times _ -> (vector2, Instruction (Just id, OpVectorTimesScalar typeId1 e1 e2))
+              _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
+          (t1, t2) | (t1 == int32 || t1 == float32) && (t2 == vector2 || t2 == vector3 || t2 == vector4) ->
+            case op of
+              Ast.Times _ -> (vector2, Instruction (Just id, OpVectorTimesScalar typeId1 e1 e2))
+              _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
+          _ -> error "Not implemented"
+      inst = [instruction]
+      result = (id, resultType)
+   in (state', result, [], inst)
+
+generateExpr :: State -> Expr Range -> (State, Variable, [Instruction], [Instruction])
+generateExpr state expr =
+  let id = Id (idCount state + 1)
+      returnVar = (id, DTypeVoid)
+   in case expr of
+        EInt _ i -> let (s, id, inst) = generateConst state (LInt i) in (s, (id, int32), inst, [])
+        EFloat _ f -> let (s, id, inst) = generateConst state (LFloat f) in (s, (id, float32), inst, [])
+        EList _ l ->
+          let len = length l
+              (state', returnVar', typeInst, inst) =
+                foldl
+                  ( \(s, v, t, i) e ->
+                      let (s', v', t', i') = generateExpr s e
+                       in (s', v', t ++ t', i ++ i')
+                  )
+                  (state, returnVar, [], [])
+                  l
+           in (state, returnVar', [], [])
+        -- EApp _ (EOp _ op) e2 ->
+        --   let (state', var, typeInst1, inst1) = generateExpr state e2
+        --       (state'', var', typeInst2, inst2) = generateSingleOp state' op var
+        --       typeInst' = typeInst1 ++ typeInst2
+        --       inst' = inst1 ++ inst2
+        --    in (state'', var', typeInst', inst')
+        EApp _ (EVar _ (Name _ n)) e2 -> (state, returnVar, [], [])
+        EApp _ e1 e2 -> error "Not implemented"
+        EPar _ e -> generateExpr state e
+        EVar _ (Name _ n) -> (state, returnVar, [], []) -- todo : implement
+        EString _ s -> error "String not implemented"
+        EUnit _ -> (state, returnVar, [], [])
+        EIfThenElse _ e1 e2 e3 ->
+          let (state1, var1, typeInst1, inst1) = generateExpr state e1
+              (state2, var2, typeInst2, inst2) = generateExpr state1 e2
+              (state3, var3, typeInst3, inst3) = generateExpr state2 e3
+              typeInst' = typeInst1 ++ typeInst2 ++ typeInst3
+              inst' = inst1 ++ inst2 ++ inst3
+           in (state3, var3, typeInst', inst')
+        ENeg _ e ->
+          let (state', var, typeInst1, inst1) = generateExpr state e
+              (state'', var', typeInst2, inst2) = generateNegOp state' var
+              typeInst' = typeInst1 ++ typeInst2
+              inst' = inst1 ++ inst2
+           in (state'', var', typeInst', inst')
+        EBinOp _ e1 op e2 ->
+          let (state', var1, typeInst1, inst1) = generateExpr state e1
+              (state'', var2, typeInst2, inst2) = generateExpr state' e2
+              (state''', var3, typeInst3, inst3) = generateBinOp state'' var1 op var2
+              typeInst' = typeInst1 ++ typeInst2 ++ typeInst3
+              inst' = inst1 ++ inst2 ++ inst3
+           in (state''', var3, typeInst', inst')
+        EOp _ op -> error "Not implemented"
+        ELetIn _ dec e -> (state, returnVar, [], [])
+
+-- genFunctionCode :: (State, Instructions) -> Dec Range -> (State, Instructions)
+-- genFunctionCode state (DecAnno r name t) =
+
+generated :: Config -> [Env Range] -> (State, [Instruction])
+generated config decs =
+  let init = generateInit config
+      (initState, inst) = generateUniform init (uniforms config)
+
+      -- functions = foldl genFunctionCode header decs
+      -- -- test = generateConst functions (LInt 1)
+      -- -- test =generateType functions (DTypeVoid)
+      -- test = functions
+      -- test = init
+      finalInst = headerFields inst
+   in (initState, finalInst)

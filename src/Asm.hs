@@ -5,7 +5,7 @@
 
 module Asm
   ( Instruction (..),
-    Literal(..),
+    Literal (..),
     Ops (..),
     OpId (..),
     ShowList (..),
@@ -21,14 +21,15 @@ module Asm
   )
 where
 
-
 -- import Data.Functor.Contravariant (Op)
 -- import GHC.ExecutionStack (Location)
 
-data Literal = 
-  LUint Int | LInt Int | LFloat Float
+data Literal
+  = LBool Bool
+  | LUint Int
+  | LInt Int
+  | LFloat Float
   deriving (Show)
-
 
 data OpId
   = IdName String
@@ -148,10 +149,10 @@ data Ops
   | -- OpTypeDeclaration
     OpTypeVoid
   | OpTypeBool
-  | OpTypeInt Int Int-- bit width  , 0 indicates unsigned,1 indicates signed semantics.
+  | OpTypeInt Int Int -- bit width  , 0 indicates unsigned,1 indicates signed semantics.
   | OpTypeFloat Int -- bit width
   | OpTypeVector OpId Int -- component count
-  | OpTypeMatrix OpId Int-- vectorTypeId column count
+  | OpTypeMatrix OpId Int -- vectorTypeId column count
   | OpTypeArray OpId Int -- data type id
   | OpTypeStruct (ShowList OpId) -- data types id
   | OpTypePointer OpId StorageClass
@@ -250,10 +251,18 @@ newtype Instruction = Instruction (Maybe ResultId, Ops)
 
 instance Show Instruction where
   show (Instruction (_, Comment s)) = "; " ++ s
-  show (Instruction (Just res, OpConstant r l)) =show res ++ " = "++"OpConstant "++show r ++" "++ (case l of
-    LUint i -> show i
-    LInt i -> show i
-    LFloat f -> show f)
+  show (Instruction (Just res, OpConstant r l)) =
+    show res
+      ++ " = "
+      ++ "OpConstant "
+      ++ show r
+      ++ " "
+      ++ ( case l of
+             LBool b -> show b
+             LUint i -> show i
+             LInt i -> show i
+             LFloat f -> show f
+         )
   show (Instruction (Nothing, op)) = show op
   show (Instruction (Just res, op)) = show res ++ " = " ++ show op
 
