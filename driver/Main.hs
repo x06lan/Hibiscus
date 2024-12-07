@@ -22,4 +22,6 @@ main = do
       putStrLn "\n----- Type Check Result ---------------"
       case typeInfer' parseResult of
         Left err -> putStrLn $ "Check Error: " ++ err
-        Right inferResult -> print inferResult
+        Right (env, de) -> do
+          print env
+          mapM_ print de
