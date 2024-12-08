@@ -1,4 +1,4 @@
-name: Hibiscus
+name: hibiscus
 version: 0.1.0.0
 
 extra-source-files:
@@ -10,6 +10,11 @@ default-extensions:
 
 library:
   source-dirs: src
+  exposed-modules:
+  - Hibiscus.Ast
+  - Hibiscus.Lexer
+  - Hibiscus.Parser
+  - Hibiscus.Type
   dependencies:
   - array
   - base
@@ -20,22 +25,23 @@ library:
   - alex
   - happy
 
+executable:
+  main: Main.hs
+  source-dirs: driver
+  dependencies:
+  - base
+  - bytestring
+  - hibiscus
+
 tests:
-  typeinfer-playground:
-    main: bs2.hs
+  type-infer:
+    main: typeinfer.hs
     source-dirs:
     - test
     - src
     other-modules:
-    - Ast
-    - Lexer
-    - Parser
-    verbatim:
-      type: exitcode-stdio-1.0 # detailed-0.9
-      default-language: null
+    - Hibiscus.Ast
+    - Hibiscus.Type
     dependencies:
-    - array
     - base
-    - containers
-    - mtl
     - bytestring

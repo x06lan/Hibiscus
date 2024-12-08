@@ -2,7 +2,7 @@
 
 {
 -- At the top of the file, we define the module and its imports, similarly to Haskell.
-module Lexer
+module Hibiscus.Lexer
   ( -- * Invoking Alex
     Alex
   , AlexPosn (..)
@@ -48,6 +48,8 @@ tokens :-
 <0> if      { tok If }
 <0> then    { tok Then }
 <0> else    { tok Else }
+<0> True    { tokBool True }
+<0> False   { tokBool False }
 
 <0> "="     { tok Assign }
 <0> ";"     { tok SemiColon }
@@ -131,13 +133,14 @@ data Token
   | String ByteString
   | Int Int
   | Float Float
+  | Bool Bool
   -- keyword
   | Let
   | In
   | If
   | Then
   | Else
-
+  -- util
   | Assign
   | SemiColon
   -- arith
@@ -206,6 +209,13 @@ tokString :: AlexAction RangedToken
 tokString inp@(_, _, str, _) len =
   pure RangedToken
     { rtToken = String $ BS.take len str
+    , rtRange = mkRange inp len
+    }
+
+tokBool :: Bool -> AlexAction RangedToken
+tokBool bool inp@(_, _, str, _) len =
+  pure RangedToken
+    { rtToken = Bool bool
     , rtRange = mkRange inp len
     }
 

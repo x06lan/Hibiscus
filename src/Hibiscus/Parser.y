@@ -1,7 +1,7 @@
 -- vim: set ft=haskell
 {
 {-# LANGUAGE DeriveFoldable #-}
-module Parser
+module Hibiscus.Parser
   ( parseHibiscus
   ) where
 
@@ -9,8 +9,8 @@ import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.Maybe (fromJust)
 import Data.Monoid (First (..))
 
-import qualified Lexer as L
-import Ast
+import qualified Hibiscus.Lexer as L
+import Hibiscus.Ast
 }
 
 %name parseHibiscus decs
@@ -25,6 +25,7 @@ import Ast
   string      { L.RangedToken (L.String _) _ }
   int         { L.RangedToken (L.Int _) _ }
   float       { L.RangedToken (L.Float _) _ }
+  bool        { L.RangedToken (L.Bool _) _ }
   let         { L.RangedToken L.Let _ }
   in          { L.RangedToken L.In _ }
   if          { L.RangedToken L.If _ }
@@ -119,7 +120,7 @@ expr :: { Expr L.Range }
   -- Logical operators
   | expr '&'  expr      { EBinOp (info $1 <-> info $3) $1 (And (L.rtRange $2)) $3 }
   | expr '|'  expr      { EBinOp (info $1 <-> info $3) $1 (Or (L.rtRange $2)) $3 }
-  | let dec in expr     { ELetIn (L.rtRange $1 <-> info $4) $2 $4 }
+  | let decs in expr    { ELetIn (L.rtRange $1 <-> info $4) $2 $4 }
 
 exprapp :: { Expr L.Range }
   : exprapp atom  { EApp (info $1 <-> info $2) $1 $2 }
@@ -133,9 +134,25 @@ atom :: { Expr L.Range }
   | float                     { unTok $1 (\range (L.Float float) -> EFloat range float) }
   | name                      { EVar (info $1) $1 }
   | string                    { unTok $1 (\range (L.String string) -> EString range string) }
+  | bool                      { unTok $1 (\range (L.Bool bool) -> EBool range bool) }
   | '(' ')'                   { EUnit (L.rtRange $1 <-> L.rtRange $2) }
   | '[' sepBy(expr, ',') ']'  { EList (L.rtRange $1 <-> L.rtRange $3) $2 }
   | '(' expr ')'              { EPar (L.rtRange $1 <-> L.rtRange $3) $2 }
+  -- Arithmetic operators
+  | '(' '+' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Plus (L.rtRange $2)) }
+  | '(' '-' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Minus (L.rtRange $2)) }
+  | '(' '*' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Times (L.rtRange $2)) }
+  | '(' '/' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Divide (L.rtRange $2)) }
+  -- Comparison operators
+  | '(' '=' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Eq (L.rtRange $2)) }
+  | '(' '<>' ')'              { EOp (L.rtRange $1 <-> L.rtRange $3) (Neq (L.rtRange $2)) }
+  | '(' '<' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Lt (L.rtRange $2)) }
+  | '(' '<=' ')'              { EOp (L.rtRange $1 <-> L.rtRange $3) (Le (L.rtRange $2)) }
+  | '(' '>' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Gt (L.rtRange $2)) }
+  | '(' '>=' ')'              { EOp (L.rtRange $1 <-> L.rtRange $3) (Ge (L.rtRange $2)) }
+  -- Logical operators
+  | '(' '&' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (And (L.rtRange $2)) }
+  | '(' '|' ')'               { EOp (L.rtRange $1 <-> L.rtRange $3) (Or (L.rtRange $2)) }
 
 {
 parseError :: L.RangedToken -> L.Alex a
