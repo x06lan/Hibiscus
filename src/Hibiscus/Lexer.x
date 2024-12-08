@@ -113,6 +113,12 @@ alexEOF = do
   (pos, _, _, _) <- alexGetInput
   pure $ RangedToken EOF (Range pos pos)
 
+
+-- data Range = Range
+--   { start :: AlexPosn
+--   , stop :: AlexPosn
+--   } deriving (Eq,Show)
+
 data Range = Range
   { start :: AlexPosn
   , stop :: AlexPosn

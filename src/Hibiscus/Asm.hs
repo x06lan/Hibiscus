@@ -3,7 +3,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# OPTIONS_GHC -w #-}
 
-module Asm
+module Hibiscus.Asm
   ( Instruction (..),
     Literal (..),
     Ops (..),

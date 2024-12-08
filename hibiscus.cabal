@@ -19,11 +19,10 @@ library
       Hibiscus.Lexer
       Hibiscus.Parser
       Hibiscus.Type
+      Hibiscus.CodeGen
+      Hibiscus.Asm
   other-modules:
-      Asm
-      CodeGen
-      Inference
-      Typing
+      Hibiscus.Typing
       Paths_hibiscus
   hs-source-dirs:
       src

@@ -1,6 +1,6 @@
-module Typing where
+module Hibiscus.Typing where
 
-import Asm (StorageClass)
+import Hibiscus.Asm (StorageClass)
 
 -- import qualified Data.Set as Set
 

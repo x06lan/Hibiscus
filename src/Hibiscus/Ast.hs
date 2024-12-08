@@ -25,7 +25,10 @@ data Type a
 prettyT (TArrow _ ta tb) = prettyT ta ++ " -> " ++ prettyT tb
 prettyT (TVar _ (Name _ n)) = unpack n
 prettyT (TUnknown _ s) = "?" ++ show s
-prettyT t = show t
+prettyT (TUnit _) = "()"
+prettyT (TList _ t) = "[" ++ prettyT t ++ "]"
+prettyT (TPar _ t) = "(" ++ prettyT t ++ ")"
+-- prettyT t = show t
 
 instance Show (Type a) where
   show t = "Type \"" ++ prettyT t ++ "\""

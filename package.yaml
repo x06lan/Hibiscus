@@ -2,46 +2,48 @@ name: hibiscus
 version: 0.1.0.0
 
 extra-source-files:
-- README.md
-- LICENSE
+  - README.md
+  - LICENSE
 
 default-extensions:
-- OverloadedStrings
+  - OverloadedStrings
 
 library:
   source-dirs: src
   exposed-modules:
-  - Hibiscus.Ast
-  - Hibiscus.Lexer
-  - Hibiscus.Parser
-  - Hibiscus.Type
+    - Hibiscus.Ast
+    - Hibiscus.Lexer
+    - Hibiscus.Parser
+    - Hibiscus.Type
+    - Hibiscus.CodeGen
+    - Hibiscus.Asm
   dependencies:
-  - array
-  - base
-  - bytestring
-  - containers
-  - mtl
+    - array
+    - base
+    - bytestring
+    - containers
+    - mtl
   build-tools:
-  - alex
-  - happy
+    - alex
+    - happy
 
 executable:
   main: Main.hs
   source-dirs: driver
   dependencies:
-  - base
-  - bytestring
-  - hibiscus
+    - base
+    - bytestring
+    - hibiscus
 
 tests:
   type-infer:
     main: typeinfer.hs
     source-dirs:
-    - test
-    - src
+      - test
+      - src
     other-modules:
-    - Hibiscus.Ast
-    - Hibiscus.Type
+      - Hibiscus.Ast
+      - Hibiscus.Type
     dependencies:
-    - base
-    - bytestring
+      - base
+      - bytestring

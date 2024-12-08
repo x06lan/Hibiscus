@@ -2,18 +2,20 @@
 {-# LANGUAGE MagicHash #-}
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-missing-signatures #-}
 
-module CodeGen where
+module Hibiscus.CodeGen where
 
 -- import qualified Data.Set as Set
-import Asm
-import Ast
+
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.Fixed (Uni)
+import Data.List (intercalate)
 import qualified Data.Map as Map
-import Inference
-import Lexer
-import Parser
-import Typing
+import Hibiscus.Asm
+import qualified Hibiscus.Ast as Ast
+import Hibiscus.Lexer
+import Hibiscus.Parser
+import Hibiscus.Type
+import Hibiscus.Typing
 
 -- import Data.IntMap (fromList, foldlWithKey)
 
@@ -239,62 +241,6 @@ generateInit h =
           functionFields = [[Instruction (Nothing, Comment "functions fields")]]
         }
 
--- genFunctionCode :: (State, Instructions) -> Dec Range -> (State, Instructions)
--- genFunctionCode state (DecAnno r name t) =
---   state
--- genFunctionCode (state, instruction) (Dec range name args expr) =
---   let funcName = case name of
---         Name _ n -> BS.unpack n
---       -- Process the function arguments
---       t = Just (TVar (Range (AlexPn 0 0 0) (AlexPn 0 0 0)) (Name (Range (AlexPn 0 0 0) (AlexPn 0 0 0)) "int")) -- TODO: Change this to the actual return type
---       typeConvert t =
---         ( case t of
---             Just (TVar _ (Name _ "int")) -> int32
---             Just (TVar _ (Name _ "float")) -> float32
---             Just _ -> error "Invalid type"
---             Nothing -> error "No type"
---         )
---       (argsTypes, returnType) = case funcName of
---         "main" ->
---           ( [],
---             DTypeVoid
---           )
---         _ ->
---           ( map (\(Argument _ (Name _ name)) -> (typeConvert t, name)) args,
---             typeConvert (Just (TVar (Range (AlexPn 0 0 0) (AlexPn 0 0 0)) (Name (Range (AlexPn 0 0 0) (AlexPn 0 0 0)) "int"))) -- TODO: Change this to the actual return type
---           )
-
---       argsPointer = map (\(t, name) -> (DTypePointer t Function, name)) argsTypes
---       functionType = DTypeFunction returnType (map fst argsPointer)
-
---       key = IdTypeFunction funcName functionType
---    in case findId key (idMap state) of
---         Just _ -> state
---         Nothing ->
---           let state' = generateType state functionType
-
---               typeId = searchTypeId (idMap state') functionType
---               returnTypeId = searchTypeId (idMap state') returnType
-
---               state'' = insertId key state'
---            in -- funcId = case findId key newMap of
---               --   Just x -> x
---               --   Nothing -> error (show key ++ " function not found")
---               -- -- Nothing -> error (Map.foldlWithKey   (\acc k v -> acc ++"\n"++ show k ++" @ "++ show v) "" newMap)
-
---               -- functionParameterInstruction = map (\(t, name) -> Instruction (Just (IdName (BS.unpack name)), OpFunctionParameter (searchTypeId newMap t))) argsPointer
---               -- startInstruction = [Instruction (Just funcId, OpFunction returnTypeId None typeId)]
-
---               -- functionInstruction = startInstruction ++ functionParameterInstruction ++ [Instruction (Nothing, OpFunctionEnd)]
-
---               -- constInstruction = []
---               -- state'' =
---               --   state'
---               --     { idCount = idCount state',
---               --       idMap = newMap
---               --     }
---               (state'', instruction {functionFields = functionFields instruction ++ functionInstruction})
-
 generateNegOp :: State -> Variable -> (State, Variable, [Instruction], [Instruction])
 generateNegOp state v =
   let id = Id ((idCount state) + 1)
@@ -316,7 +262,7 @@ generateNegOp state v =
       result = (id, resultType)
    in (state', result, [], inst)
 
-generateBinOp :: State -> Variable -> Op Range -> Variable -> (State, Variable, [Instruction], [Instruction])
+generateBinOp :: State -> Variable -> Ast.Op (Range, Ast.Type Range) -> Variable -> (State, Variable, [Instruction], [Instruction])
 generateBinOp state v1 op v2 =
   let id = Id (idCount state + 1)
       (e1, t1, typeId1) = (fst v1, snd v1, searchTypeId state (snd v1))
@@ -374,71 +320,89 @@ generateBinOp state v1 op v2 =
       result = (id, resultType)
    in (state', result, [], inst)
 
-generateExpr :: State -> Expr Range -> (State, Variable, [Instruction], [Instruction])
+data ExprReturn
+  = ExprResult Variable
+  | ExprApplication Variable [Variable]
+
+generateExpr :: State -> Ast.Expr (Range, Ast.Type Range) -> (State, ExprReturn, [Instruction], [Instruction])
 generateExpr state expr =
   let id = Id (idCount state + 1)
-      returnVar = (id, DTypeVoid)
+      returnVar = ExprResult (id, DTypeVoid)
    in case expr of
-        EInt _ i -> let (s, id, inst) = generateConst state (LInt i) in (s, (id, int32), inst, [])
-        EFloat _ f -> let (s, id, inst) = generateConst state (LFloat f) in (s, (id, float32), inst, [])
-        EList _ l ->
+        Ast.EInt _ i -> let (s, id, inst) = generateConst state (LInt i) in (s, ExprResult (id, int32), inst, [])
+        Ast.EFloat _ f -> let (s, id, inst) = generateConst state (LFloat f) in (s, ExprResult (id, float32), inst, [])
+        Ast.EList _ l ->
           let len = length l
-              (state', returnVar', typeInst, inst) =
-                foldl
-                  ( \(s, v, t, i) e ->
-                      let (s', v', t', i') = generateExpr s e
-                       in (s', v', t ++ t', i ++ i')
-                  )
-                  (state, returnVar, [], [])
-                  l
-           in (state, returnVar', [], [])
+           in -- (state', returnVar', typeInst, inst) =
+              --   foldl
+              --     ( \(s, v, t, i) e ->
+              --         let (s', v', t', i') = generateExpr s e
+              --          in (s', v', t ++ t', i ++ i')
+              --     )
+              --     (state, returnVar, [], [])
+              --     l
+              (state, returnVar, [], [])
         -- EApp _ (EOp _ op) e2 ->
         --   let (state', var, typeInst1, inst1) = generateExpr state e2
         --       (state'', var', typeInst2, inst2) = generateSingleOp state' op var
         --       typeInst' = typeInst1 ++ typeInst2
         --       inst' = inst1 ++ inst2
         --    in (state'', var', typeInst', inst')
-        EApp _ (EVar _ (Name _ n)) e2 -> (state, returnVar, [], [])
-        EApp _ e1 e2 -> error "Not implemented"
-        EPar _ e -> generateExpr state e
-        EVar _ (Name _ n) -> (state, returnVar, [], []) -- todo : implement
-        EString _ s -> error "String not implemented"
-        EUnit _ -> (state, returnVar, [], [])
-        EIfThenElse _ e1 e2 e3 ->
-          let (state1, var1, typeInst1, inst1) = generateExpr state e1
+        Ast.EApp _ (Ast.EVar _ (Ast.Name _ n)) e2 -> (state, returnVar, [], [])
+        Ast.EApp _ e1 e2 -> error "Not implemented"
+        Ast.EPar _ e -> generateExpr state e
+        Ast.EVar _ (Ast.Name _ n) -> (state, returnVar, [], []) -- todo : implement
+        Ast.EString _ s -> error "String not implemented"
+        Ast.EUnit _ -> (state, returnVar, [], [])
+        Ast.EIfThenElse _ e1 e2 e3 ->
+          let (state1, ExprResult var1, typeInst1, inst1) = generateExpr state e1
               (state2, var2, typeInst2, inst2) = generateExpr state1 e2
               (state3, var3, typeInst3, inst3) = generateExpr state2 e3
               typeInst' = typeInst1 ++ typeInst2 ++ typeInst3
               inst' = inst1 ++ inst2 ++ inst3
            in (state3, var3, typeInst', inst')
-        ENeg _ e ->
-          let (state', var, typeInst1, inst1) = generateExpr state e
+        Ast.ENeg _ e ->
+          let (state', ExprResult var, typeInst1, inst1) = generateExpr state e
               (state'', var', typeInst2, inst2) = generateNegOp state' var
               typeInst' = typeInst1 ++ typeInst2
               inst' = inst1 ++ inst2
-           in (state'', var', typeInst', inst')
-        EBinOp _ e1 op e2 ->
-          let (state', var1, typeInst1, inst1) = generateExpr state e1
-              (state'', var2, typeInst2, inst2) = generateExpr state' e2
+           in (state'', ExprResult var', typeInst', inst')
+        Ast.EBinOp _ e1 op e2 ->
+          let (state', ExprResult var1, typeInst1, inst1) = generateExpr state e1
+              (state'', ExprResult var2, typeInst2, inst2) = generateExpr state' e2
               (state''', var3, typeInst3, inst3) = generateBinOp state'' var1 op var2
               typeInst' = typeInst1 ++ typeInst2 ++ typeInst3
               inst' = inst1 ++ inst2 ++ inst3
-           in (state''', var3, typeInst', inst')
-        EOp _ op -> error "Not implemented"
-        ELetIn _ dec e -> (state, returnVar, [], [])
+           in (state''', ExprResult var3, typeInst', inst')
+        Ast.EOp _ op -> error "Not implemented"
+        Ast.ELetIn _ dec e -> (state, returnVar, [], [])
 
--- genFunctionCode :: (State, Instructions) -> Dec Range -> (State, Instructions)
--- genFunctionCode state (DecAnno r name t) =
+genFunctionCode :: (State, Instructions) -> Ast.Dec (Range, Ast.Type Range) -> (State, Instructions)
+genFunctionCode (state, inst) (Ast.DecAnno _ name t) = (state, inst)
+genFunctionCode (state, inst) (Ast.Dec _ (Ast.Name (_, t) name) args e) =
+  if name == "main"
+    then
+      let (state', returnVar, typeInst, inst') = generateExpr state e
+          updatedInst = inst {functionFields = functionFields inst ++ [inst']}
+       in (state', updatedInst)
+    else (state, inst)
 
-generated :: Config -> [Env Range] -> (State, [Instruction])
-generated config decs =
+instructionsToString :: Instructions -> String
+instructionsToString inst =
+  let code = headerFields inst ++ nameFields inst ++ uniformsFields inst ++ constFields inst ++ concat (functionFields inst)
+      codeText = intercalate "\n" (map show code)
+   in codeText
+
+generate :: Config -> [Ast.Dec (Range, Ast.Type Range)] -> Instructions
+generate config decs =
   let init = generateInit config
       (initState, inst) = generateUniform init (uniforms config)
+      (functions, inst') = foldl genFunctionCode (initState, inst) decs
 
       -- functions = foldl genFunctionCode header decs
       -- -- test = generateConst functions (LInt 1)
       -- -- test =generateType functions (DTypeVoid)
       -- test = functions
       -- test = init
-      finalInst = headerFields inst
-   in (initState, finalInst)
+      finalInst = inst'
+   in inst
