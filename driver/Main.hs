@@ -1,19 +1,19 @@
 module Main where
 
+import Control.Monad (when)
 import qualified Data.ByteString.Lazy.Char8 as BS
+import Hibiscus.CodeGen (defaultConfig, generate, instructionsToString)
 import Hibiscus.Lexer (runAlex)
 import Hibiscus.Parser (parseHibiscus)
 import Hibiscus.Type (typeInfer')
-import Hibiscus.CodeGen (generate,defaultConfig,instructionsToString)
 import System.Environment (getArgs)
-import Control.Monad (when)
 
 main :: IO ()
 main = do
   args <- getArgs
   when (null args) $ error "Usage: program <file-path>"
   let inputFilePath = head args
-  
+
   putStrLn "\n----- Parse Result ---------------"
   content <- BS.readFile inputFilePath
   case runAlex content parseHibiscus of
@@ -28,5 +28,7 @@ main = do
           -- mapM_ print de
           -- print de
           let code = generate defaultConfig de
-          putStrLn (instructionsToString code)
-
+          print de
+          -- print env
+          -- putStrLn (instructionsToString code)
+          putStrLn $ show code

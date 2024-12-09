@@ -307,6 +307,11 @@ generateBinOp state v1 op v2 =
               Ast.Le _ -> (bool, Instruction (Just id, OpFOrdLessThanEqual typeId1 e1 e2))
               Ast.Gt _ -> (bool, Instruction (Just id, OpFOrdGreaterThan typeId1 e1 e2))
               Ast.Ge _ -> (bool, Instruction (Just id, OpFOrdGreaterThanEqual typeId1 e1 e2))
+          (t1, t2) | t1 == t2 && (t1 == vector2 || t1 == vector3 || t1 == vector4) ->
+            case op of
+              Ast.Plus _ -> (vector2, Instruction (Just id, OpFAdd typeId1 e1 e2))
+              Ast.Minus _ -> (vector2, Instruction (Just id, OpFSub typeId1 e1 e2))
+              Ast.Times _ -> (vector2, Instruction (Just id, OpFMul typeId1 e1 e2))
           (t1, t2) | (t1 == vector2 || t1 == vector3 || t1 == vector4) && (t2 == int32 || t2 == float32) ->
             case op of
               Ast.Times _ -> (vector2, Instruction (Just id, OpVectorTimesScalar typeId1 e1 e2))
@@ -315,7 +320,7 @@ generateBinOp state v1 op v2 =
             case op of
               Ast.Times _ -> (vector2, Instruction (Just id, OpVectorTimesScalar typeId1 e1 e2))
               _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
-          _ -> error "Not implemented"
+          _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
       inst = [instruction]
       result = (id, resultType)
    in (state', result, [], inst)
@@ -323,6 +328,7 @@ generateBinOp state v1 op v2 =
 data ExprReturn
   = ExprResult Variable
   | ExprApplication Variable [Variable]
+  deriving (Show)
 
 generateExpr :: State -> Ast.Expr (Range, Ast.Type Range) -> (State, ExprReturn, [Instruction], [Instruction])
 generateExpr state expr =
@@ -348,12 +354,35 @@ generateExpr state expr =
         --       typeInst' = typeInst1 ++ typeInst2
         --       inst' = inst1 ++ inst2
         --    in (state'', var', typeInst', inst')
-        Ast.EApp _ (Ast.EVar _ (Ast.Name _ n)) e2 -> (state, returnVar, [], [])
-        Ast.EApp _ e1 e2 -> error "Not implemented"
+        -- Ast.EApp _ (Ast.EVar _ (Ast.Name _ n)) e2 -> (state, returnVar, [], [])
+        Ast.EApp _ e1 e2 ->
+          let (state', var1, typeInst1, inst1) = generateExpr state e1
+              (state'', var2, typeInst2, inst2) = generateExpr state' e2
+           in (state, returnVar, [], [])
+        -- let (state', var1, typeInst1, inst1) = generateExpr state e1
+        --     (state'', var2, typeInst2, inst2) = generateExpr state' e2
+        -- (state''', var3, typeInst3, inst3) = generateBinOp state'' var1 (Ast.Plus (0, Ast.TUnknown (0, 0))) var2
+        -- typeInst' = typeInst1 ++ typeInst2 ++ typeInst3
+        -- inst' = inst1 ++ inst2 ++ inst3
         Ast.EPar _ e -> generateExpr state e
-        Ast.EVar _ (Ast.Name _ n) -> (state, returnVar, [], []) -- todo : implement
+        Ast.EVar (_, t1) (Ast.Name (_, t2) n) ->
+          let returnVar' = case t1 of
+                Ast.TArrow _ t1 t2 ->
+                  let varType = DTypeFunction (DTypeVoid) [DTypeInt 32 1] -- todo fix this
+                      typeId = searchTypeId state varType
+                      var = (IdName (BS.unpack n), varType)
+                      returnVar'' = ExprApplication var []
+                   in returnVar''
+                Ast.TVar _ (Ast.Name _ n) ->
+                  let varType = float32
+                      typeId = searchTypeId state varType
+                      var = (IdName (BS.unpack n), varType)
+                      returnVar'' = ExprResult var
+                   in returnVar''
+           in (state, returnVar, [], [])
+        -- error (show n ++ ":" ++ show t1 ++ show t2)
         Ast.EString _ s -> error "String not implemented"
-        Ast.EUnit _ -> (state, returnVar, [], [])
+        Ast.EUnit _ -> (state, returnVar, [], []) -- todo fix this
         Ast.EIfThenElse _ e1 e2 e3 ->
           let (state1, ExprResult var1, typeInst1, inst1) = generateExpr state e1
               (state2, var2, typeInst2, inst2) = generateExpr state1 e2
@@ -374,18 +403,19 @@ generateExpr state expr =
               typeInst' = typeInst1 ++ typeInst2 ++ typeInst3
               inst' = inst1 ++ inst2 ++ inst3
            in (state''', ExprResult var3, typeInst', inst')
-        Ast.EOp _ op -> error "Not implemented"
-        Ast.ELetIn _ dec e -> (state, returnVar, [], [])
+        Ast.EOp _ op -> error "Not implemented" -- todo fix this
+        Ast.ELetIn _ dec e -> (state, returnVar, [], []) -- todo
 
-genFunctionCode :: (State, Instructions) -> Ast.Dec (Range, Ast.Type Range) -> (State, Instructions)
-genFunctionCode (state, inst) (Ast.DecAnno _ name t) = (state, inst)
-genFunctionCode (state, inst) (Ast.Dec _ (Ast.Name (_, t) name) args e) =
-  if name == "main"
-    then
-      let (state', returnVar, typeInst, inst') = generateExpr state e
-          updatedInst = inst {functionFields = functionFields inst ++ [inst']}
-       in (state', updatedInst)
-    else (state, inst)
+genFunction :: (State, Instructions) -> Ast.Dec (Range, Ast.Type Range) -> (State, Instructions)
+genFunction (state, inst) (Ast.DecAnno _ name t) = (state, inst)
+genFunction (state, inst) (Ast.Dec _ (Ast.Name (_, t) name) args e) =
+  let (state', returnVar, typeInst, inst') = generateExpr state e
+      inst'' =
+        inst
+          { constFields = constFields inst ++ typeInst,
+            functionFields = functionFields inst ++ [inst']
+          }
+   in (state', inst'')
 
 instructionsToString :: Instructions -> String
 instructionsToString inst =
@@ -397,7 +427,8 @@ generate :: Config -> [Ast.Dec (Range, Ast.Type Range)] -> Instructions
 generate config decs =
   let init = generateInit config
       (initState, inst) = generateUniform init (uniforms config)
-      (functions, inst') = foldl genFunctionCode (initState, inst) decs
+      (functions, inst') = foldl genFunction (initState, inst) decs
+      -- (state', inst') = foldl genFunction (initState, inst) decs
 
       -- functions = foldl genFunctionCode header decs
       -- -- test = generateConst functions (LInt 1)
@@ -405,4 +436,4 @@ generate config decs =
       -- test = functions
       -- test = init
       finalInst = inst'
-   in inst
+   in finalInst
