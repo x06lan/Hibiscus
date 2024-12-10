@@ -309,9 +309,9 @@ generateBinOp state v1 op v2 =
               Ast.Ge _ -> (bool, Instruction (Just id, OpFOrdGreaterThanEqual typeId1 e1 e2))
           (t1, t2) | t1 == t2 && (t1 == vector2 || t1 == vector3 || t1 == vector4) ->
             case op of
-              Ast.Plus _ -> (vector2, Instruction (Just id, OpFAdd typeId1 e1 e2))
-              Ast.Minus _ -> (vector2, Instruction (Just id, OpFSub typeId1 e1 e2))
-              Ast.Times _ -> (vector2, Instruction (Just id, OpFMul typeId1 e1 e2))
+              Ast.Plus _ -> (t1, Instruction (Just id, OpFAdd typeId1 e1 e2))
+              Ast.Minus _ -> (t1, Instruction (Just id, OpFSub typeId1 e1 e2))
+              Ast.Times _ -> (t1, Instruction (Just id, OpFMul typeId1 e1 e2))
           (t1, t2) | (t1 == vector2 || t1 == vector3 || t1 == vector4) && (t2 == int32 || t2 == float32) ->
             case op of
               Ast.Times _ -> (vector2, Instruction (Just id, OpVectorTimesScalar typeId1 e1 e2))
@@ -355,10 +355,6 @@ generateExpr state expr =
         --       inst' = inst1 ++ inst2
         --    in (state'', var', typeInst', inst')
         -- Ast.EApp _ (Ast.EVar _ (Ast.Name _ n)) e2 -> (state, returnVar, [], [])
-        Ast.EApp _ e1 e2 ->
-          let (state', var1, typeInst1, inst1) = generateExpr state e1
-              (state'', var2, typeInst2, inst2) = generateExpr state' e2
-           in (state, returnVar, [], [])
         -- let (state', var1, typeInst1, inst1) = generateExpr state e1
         --     (state'', var2, typeInst2, inst2) = generateExpr state' e2
         -- (state''', var3, typeInst3, inst3) = generateBinOp state'' var1 (Ast.Plus (0, Ast.TUnknown (0, 0))) var2
@@ -368,7 +364,8 @@ generateExpr state expr =
         Ast.EVar (_, t1) (Ast.Name (_, t2) n) ->
           let returnVar' = case t1 of
                 Ast.TArrow _ t1 t2 ->
-                  let varType = DTypeFunction (DTypeVoid) [DTypeInt 32 1] -- todo fix this
+                  let pointerlize d = DTypePointer d Function
+                      varType = DTypeFunction (float32) [pointerlize float32, pointerlize float32] -- todo fix this
                       typeId = searchTypeId state varType
                       var = (IdName (BS.unpack n), varType)
                       returnVar'' = ExprApplication var []
@@ -383,6 +380,19 @@ generateExpr state expr =
         -- error (show n ++ ":" ++ show t1 ++ show t2)
         Ast.EString _ s -> error "String not implemented"
         Ast.EUnit _ -> (state, returnVar, [], []) -- todo fix this
+        Ast.EApp _ e1 e2 ->
+          let (state', var1, typeInst1, inst1) = generateExpr state e1
+              (state'', var2, typeInst2, inst2) = generateExpr state' e2
+              temp = case var1 of
+                ExprResult (id, DTypeFunction returnType argTypes) -> error "Not implemented" -- todo fix this
+                ExprApplication (id, DTypeFunction returnType argTypes) args ->
+                  let args' = case var2 of
+                        ExprResult v -> args ++ [v]
+                        _ -> error "Expected ExprResult"
+                      match = length args' == length argTypes
+                      argTypes' = map snd args'
+                   in (state, returnVar, [], []) -- todo fix this
+           in (state'', returnVar, [], [])
         Ast.EIfThenElse _ e1 e2 e3 ->
           let (state1, ExprResult var1, typeInst1, inst1) = generateExpr state e1
               (state2, var2, typeInst2, inst2) = generateExpr state1 e2
@@ -406,9 +416,9 @@ generateExpr state expr =
         Ast.EOp _ op -> error "Not implemented" -- todo fix this
         Ast.ELetIn _ dec e -> (state, returnVar, [], []) -- todo
 
-genFunction :: (State, Instructions) -> Ast.Dec (Range, Ast.Type Range) -> (State, Instructions)
-genFunction (state, inst) (Ast.DecAnno _ name t) = (state, inst)
-genFunction (state, inst) (Ast.Dec _ (Ast.Name (_, t) name) args e) =
+generateFunction :: (State, Instructions) -> Ast.Dec (Range, Ast.Type Range) -> (State, Instructions)
+generateFunction (state, inst) (Ast.DecAnno _ name t) = (state, inst)
+generateFunction (state, inst) (Ast.Dec _ (Ast.Name (_, t) name) args e) =
   let (state', returnVar, typeInst, inst') = generateExpr state e
       inst'' =
         inst
@@ -427,7 +437,7 @@ generate :: Config -> [Ast.Dec (Range, Ast.Type Range)] -> Instructions
 generate config decs =
   let init = generateInit config
       (initState, inst) = generateUniform init (uniforms config)
-      (functions, inst') = foldl genFunction (initState, inst) decs
+      (functions, inst') = foldl generateFunction (initState, inst) decs
       -- (state', inst') = foldl genFunction (initState, inst) decs
 
       -- functions = foldl genFunctionCode header decs
