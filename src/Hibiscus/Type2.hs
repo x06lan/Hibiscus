@@ -149,14 +149,14 @@ fmap2nd f = fmap (second f)
 unify :: Show a => Env a -> Type a -> Type a -> Result (Subst a, Type a)
 unify env@(Env i contexts constraints) t1 t2
   | t1 == t2 = return (mempty, t1)
-  | otherwise =
+  | otherwise = traceWith (\ttt -> "Unify " ++ (show t1) ++" with "++ (show t2) ++" -> "++ show ttt) $
       case (t1, t2) of
         (TUnknown a s, t) -> return (Subst 0 [(s,t)], t)
         (t, TUnknown a s) -> return (Subst 0 [(s,t)], t)
         (TArrow a a1 b1, TArrow _ a2 b2) -> do
           (s1, ta) <- unify env b1 b2
           (s2, tb)  <- unify (subEnv s1 env) (subTy s1 a1) (subTy s1 a2)
-          return (s1 <> s2, TArrow a ta tb)
+          return (s1 <> s2, TArrow a (subTy s2 ta) tb)
         _ -> fail $ "Cannot unify " ++ show t1 ++ " with " ++ show t2
 
 inferExpr :: (Show a) => Env a -> Expr a -> Result (Subst a, Expr (a, Type a))
@@ -178,10 +178,10 @@ inferExpr env expr_ = case expr_ of
       let tf = getType f'
       let tx = getType x'
       let (s2', tv) = newMeta (subEnv (s1 <> s2) env) a
-      (s3, _) <- trace (">: " ++ show expr_) $ unify (subEnv (s1 <> s2 <> s2') env) (subTy (s1 <> s2 <> s2') tf) (TArrow a tx tv)
+      (s3, _) <- trace ("APP>: " ++ show expr_) $ unify (subEnv (s1 <> s2 <> s2') env) (subTy (s1 <> s2 <> s2') tf) (TArrow a tx tv)
       let s9 = s1 <> s2 <> s2' <> s3
       -- FIXME: works now but I guess some duplicated symbel problem here
-      let eapp' = traceWith (\t -> "<: " ++ show t) $ EApp (a, (subTy s9 tv)) (fmap2nd (subTy s9) f') (fmap2nd (subTy s9) x')
+      let eapp' = traceWith (\t -> "APP<: " ++ show t) $ EApp (a, (subTy s9 tv)) (fmap2nd (subTy s9) f') (fmap2nd (subTy s9) x')
       return (s9, eapp')
   EBinOp a exp1 op exp2 ->
     do
@@ -234,18 +234,21 @@ inferDec env_ = foldlM aux (env_, [])
               e0'' <- updateContext (name, decT) e0
               return (e0'', mempty, decT)
 
-        -- TODO: updateContext  
-
         -- inner unify
         let innerEnv' = subEnv s0 innerEnv
-        (s1, expr') <- inferExpr innerEnv' expr
+        (s1, expr') <- traceWith (\t -> "inverEpxr: " ++ show t) $ inferExpr innerEnv' expr
         let ie' = subEnv s1 innerEnv'
 
         let args' = List.map (\arg -> addType (seriousGetType ie' arg) arg) args
-        let uniT' = subTy (s0 <> s1) uniT'
-        let dec' = Dec (a, uniT) (addType (TUnit a) name) args' expr'
+        let unknownFunctionT = traceWith (\adasds -> "UNKOWDSD: " ++ show adasds) $ curryT a (map (seriousGetType ie') args) (getType expr')
+        let uniT' = subTy (s0 <> s1) uniT
+        -- TODO: unify after infer expr
+        -- let uniT'' = uniT'
+        -- (s2, uniT'') <- unify e0' unknownFunctionT uniT'
+        let s2 = mempty
+        let dec' = Dec (a, unknownFunctionT) (addType (TUnit a) name) args' expr'
         
-        return (subEnv (s0 <> s1) e0', dec' : acc)
+        return (subEnv (s0 <> s1 <> s2) e0', dec' : acc)
      where
       seriousGetType eeee (Argument _ n) = fromJust $ lookup n eeee
 
