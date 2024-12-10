@@ -21,6 +21,7 @@ library
       Hibiscus.Type
       Hibiscus.CodeGen
       Hibiscus.Asm
+      Hibiscus.Type2
   other-modules:
       Hibiscus.Typing
       Paths_hibiscus
@@ -67,4 +68,5 @@ test-suite type-infer
   build-depends:
       base
     , bytestring
+    , containers
   default-language: Haskell2010

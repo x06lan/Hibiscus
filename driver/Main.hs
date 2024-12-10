@@ -5,7 +5,7 @@ import qualified Data.ByteString.Lazy.Char8 as BS
 import Hibiscus.CodeGen (defaultConfig, generate, instructionsToString)
 import Hibiscus.Lexer (runAlex)
 import Hibiscus.Parser (parseHibiscus)
-import Hibiscus.Type (typeInfer')
+import Hibiscus.Type2 (typeInfer)
 import System.Environment (getArgs)
 
 main :: IO ()
@@ -21,7 +21,7 @@ main = do
     Right parseResult -> do
       -- print parseResult
       putStrLn "\n----- Type Check Result ---------------"
-      case typeInfer' parseResult of
+      case typeInfer parseResult of
         Left err -> putStrLn $ "Check Error: " ++ err
         Right (env, de) -> do
           -- print env

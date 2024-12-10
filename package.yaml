@@ -17,6 +17,7 @@ library:
     - Hibiscus.Type
     - Hibiscus.CodeGen
     - Hibiscus.Asm
+    - Hibiscus.Type2
   dependencies:
     - array
     - base
@@ -47,3 +48,4 @@ tests:
     dependencies:
       - base
       - bytestring
+      - containers
