@@ -149,13 +149,13 @@ fmap2nd f = fmap (second f)
 unify :: Show a => Env a -> Type a -> Type a -> Result (Subst a, Type a)
 unify env@(Env i contexts constraints) t1 t2
   | t1 == t2 = return (mempty, t1)
-  | otherwise = traceWith (\ttt -> "Unify " ++ (show t1) ++" with "++ (show t2) ++" -> "++ show ttt) $
+  | otherwise = traceWith (\ttt -> " Unify " ++ (show t1) ++" with "++ (show t2) ++" -> "++ show ttt) $
       case (t1, t2) of
         (TUnknown a s, t) -> return (Subst 0 [(s,t)], t)
         (t, TUnknown a s) -> return (Subst 0 [(s,t)], t)
         (TArrow a a1 b1, TArrow _ a2 b2) -> do
-          (s1, ta) <- unify env b1 b2
-          (s2, tb)  <- unify (subEnv s1 env) (subTy s1 a1) (subTy s1 a2)
+          (s1, ta) <- unify env a1 a2
+          (s2, tb)  <- unify (subEnv s1 env) (subTy s1 b1) (subTy s1 b2)
           return (s1 <> s2, TArrow a (subTy s2 ta) tb)
         _ -> fail $ "Cannot unify " ++ show t1 ++ " with " ++ show t2
 
@@ -244,9 +244,9 @@ inferDec env_ = foldlM aux (env_, [])
         let uniT' = subTy (s0 <> s1) uniT
         -- TODO: unify after infer expr
         -- let uniT'' = uniT'
-        -- (s2, uniT'') <- unify e0' unknownFunctionT uniT'
+        (s2, uniT'') <- unify e0' unknownFunctionT uniT'
         let s2 = mempty
-        let dec' = Dec (a, unknownFunctionT) (addType (TUnit a) name) args' expr'
+        let dec' = Dec (a, uniT'') (addType (TUnit a) name) args' expr'
         
         return (subEnv (s0 <> s1 <> s2) e0', dec' : acc)
      where
