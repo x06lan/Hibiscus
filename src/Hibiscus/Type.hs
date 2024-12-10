@@ -8,6 +8,7 @@
 
 module Hibiscus.Type (typeInfer) where
 
+import Data.Functor (void)
 import Data.Bifunctor
 import Data.ByteString.Lazy.Char8 (pack)
 import Data.Foldable (foldlM, foldrM)
@@ -16,13 +17,13 @@ import Data.Maybe (fromJust, fromMaybe)
 import Data.Tuple (curry)
 import Prelude hiding (lookup)
 
--- import Debug.Trace
+import Debug.Trace
 import GHC.Stack
 
 import Hibiscus.Ast
 
-trace :: String -> a -> a
-trace _ = id
+-- trace :: String -> a -> a
+-- trace _ = id
 traceWith :: (a -> String) -> a -> a
 traceWith f a = trace (f a) a
 
@@ -45,7 +46,11 @@ envMap :: ([Constraint a] -> [Constraint a]) -> Env a -> Env a
 envMap f (Env i xs) = Env i (f xs)
 
 lookup :: Name a -> Env a -> Maybe (Type a)
-lookup (Name _ n) (Env _ xs) = List.lookup n $ map (\(Name _ n, t) -> (n, t)) xs
+lookup name (Env _ xs) = List.lookup (void name) $ map (first void) xs
+
+lookupBiop :: Op a -> Type a -> (Type a, Type a)
+lookupBiop (Plus _) t = (t, t)
+lookupBiop _ _ = undefined
 
 update :: (Show a) => Env a -> Constraint a -> Result (Env a)
 update (Env i es) x@(n, _) =
@@ -89,7 +94,7 @@ liftSubst f env b = first (\s -> subEnv s env) $ f env b
 getNewUnknownType :: Env a -> a -> (Subst a, Type a)
 getNewUnknownType (Env i xs) a = (Subst (i + 1) [], TUnknown a i)
 
-curryT :: a -> [Type a] -> Type a -> Type a
+curryT :: (Show a) => a -> [Type a] -> Type a -> Type a
 curryT a argTs tb = traceWith (\a -> "\nCURRY" ++ show a) $ foldr (TArrow a) tb argTs
 
 getDecType :: (Show a) => Env a -> Dec a -> Result (Env a, Type a)
@@ -110,7 +115,7 @@ getDecType env_ (Dec a name args _) =
         return (e'', TArrow a ta tb)
 getDecType env _ = fail "Could only get type from Dec"
 
-subTy :: Subst a -> Type a -> Type a
+subTy :: (Show a) => Subst a -> Type a -> Type a
 subTy (Subst _ sub) t@(TUnknown _ s) =
   let
     traceMsg = "SubT: " ++ show sub ++ " on " ++ show t
@@ -141,6 +146,13 @@ unify env t1 t2
           -- errorWithStackTrace $ (prettyCallStack callStack) ++"\n"++ show env ++ "\nCannot unify " ++ show t1 ++ " with " ++ show t2
           fail $ "Cannot unify " ++ show t1 ++ " with " ++ show t2
 
+bioplist :: [((Type (), Op (), Type ()),Type a)]
+bioplist = [
+  ((litType () "Int", Plus (), litType () "Int"), litType undefined "Int"),
+  ((litType () "Float", Plus (), litType () "Float"), litType undefined "Float")]
+oplist :: [(Op (), Type a)]
+oplist = []
+
 inferExpr :: (HasCallStack, Show a) => Env a -> Expr a -> Result (Subst a, Expr (a, Type a))
 inferExpr env expr_ = case expr_ of
   EVar a name@(Name _ x) ->
@@ -161,22 +173,24 @@ inferExpr env expr_ = case expr_ of
       let tx = traceWith (\t -> "TX: " ++ show x' ++ " : " ++ show t) $ getType x'
       return (getNewUnknownType (traceWith (\a -> "EA: " ++ show a) $ subEnv (s1 <> s2) env) a)
         >>= \(s2', tv) ->
-          trace ("APPPPPPP: " ++ show expr_) $
-            unify (subEnv (s1 <> s2 <> s2') env) (traceWith (\a -> "unifyleft: " ++ show a) $ subTy (s1 <> s2 <> s2') tf) (traceWith (\a -> "unifyright: " ++ show a) $ TArrow a tx tv) -- ASDFGHJK
-              >>= \s3 -> do
-                -- traceShow (prettyT tf) (pure ())
-                -- FIXME: works now but I guess some duplicated symbel problem here
-                return (s1 <> s2 <> s2' <> s3, EApp (a, subTy (s1 <> s2 <> s2' <> s3) tv) f' x')
-  EBinOp a e1 op e2 ->
-    -- TODO: biop
-    let
-      (s', t) = getNewUnknownType env a
-     in
-      return (s', addType t expr_)
-  -- EOp a f -> -- TODO: op
-  --   do
-  --     tf <- lookup f env
-  --     return ([], addType tf expr_)
+          trace ("APPPPPPP: " ++ show expr_)$ unify (subEnv (s1 <> s2 <> s2') env) (traceWith (\a -> "unifyleft: " ++ show a) $ subTy (s1 <> s2 <> s2') tf) (traceWith (\a -> "unifyright: " ++ show a) $ TArrow a tx tv) -- ASDFGHJK
+            >>= \s3 -> do
+              -- traceShow (prettyT tf) (pure ())
+              -- FIXME: works now but I guess some duplicated symbel problem here
+              return (s1 <> s2 <> s2' <> s3, EApp (a, subTy (s1 <> s2 <> s2' <> s3) tv) f' x')
+  EBinOp a e1 op e2 -> -- TODO: biop
+    do
+      (s1, x1) <- inferExpr            env  e1
+      (s2, x2) <- inferExpr (subEnv s1 env) e2
+      let t1 = getType x1
+      let t2 = getType x2
+      case List.lookup (void t1, void op, void t2) bioplist of
+        Nothing -> fail $ "Unbound oprator: " ++ show (t1, op, t2)
+        Just t -> return (mempty, addType t expr_)
+  EOp a op ->
+    case List.lookup (void op) oplist of
+      Just t  -> return (mempty, addType t expr_)
+      Nothing -> fail $ "Unbound oprator: " ++ show op
   EPar _ exp -> inferExpr env exp
   EInt a _ -> return (mempty, addType (litType a "Int") expr_)
   EFloat a _ -> return (mempty, addType (litType a "Float") expr_)

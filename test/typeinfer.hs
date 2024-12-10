@@ -2,7 +2,7 @@ module Main where
 
 import System.Exit
 
-import Hibiscus.Type (typeInfer')
+import Hibiscus.Type2 (typeInfer)
 import Hibiscus.Ast
 
 -- testAst from:
@@ -23,6 +23,6 @@ testAst = [
 
 main :: IO ()
 main =
-    case typeInfer' testAst of
+    case typeInfer testAst of
         Right (_, es) -> mapM_ print es
         Left err -> die err

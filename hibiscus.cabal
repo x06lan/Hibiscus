@@ -19,6 +19,7 @@ library
       Hibiscus.Lexer
       Hibiscus.Parser
       Hibiscus.Type
+      Hibiscus.Type2
   other-modules:
       Paths_hibiscus
   hs-source-dirs:
@@ -56,6 +57,7 @@ test-suite type-infer
   other-modules:
       Hibiscus.Ast
       Hibiscus.Type
+      Hibiscus.Type2
   hs-source-dirs:
       test
       src
@@ -64,4 +66,5 @@ test-suite type-infer
   build-depends:
       base
     , bytestring
+    , containers
   default-language: Haskell2010
