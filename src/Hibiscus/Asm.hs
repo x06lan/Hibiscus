@@ -236,7 +236,7 @@ data Ops
   | OpFOrdGreaterThanEqual ResultType OpId OpId
   | OpFUnordGreaterThanEqual ResultType OpId OpId
   | -- OpControlFlow
-    OpLabel OpId
+    OpLabel
   | OpBranch OpId
   | OpBranchConditional OpId OpId OpId
   | OpSwitch OpId OpId [(Int, OpId)]

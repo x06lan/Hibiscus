@@ -1,5 +1,6 @@
 module Hibiscus.Typing where
 
+import Data.List (intercalate)
 import Hibiscus.Asm (StorageClass)
 
 -- import qualified Data.Set as Set
@@ -12,7 +13,7 @@ data DataType
   | DTypeVector Int DataType -- size, type
   | DTypeMatrix Int DataType -- col size, col type
   | DTypeArray Int DataType -- size, type
-  | DTypePointer DataType StorageClass -- pointer type
+  | DTypePointer StorageClass DataType -- pointer type
   | DTypeStruct String [DataType] -- name, fields
   | DTypeFunction DataType [DataType] -- return type, arguments
   deriving (Eq)
@@ -26,12 +27,12 @@ instance Show DataType where
       1 -> "i" ++ show size
       _ -> error "Invalid sign"
   show (DTypeFloat size) = "f" ++ show size
-  show (DTypeVector size baseType) = "vec" ++ show size ++ "_" ++ show baseType
-  show (DTypeMatrix col baseType) = "mat" ++ show col ++ "_" ++ show baseType
-  show (DTypeArray size baseType) = "arr_" ++ show size ++ "_" ++ show baseType
-  show (DTypePointer baseType storage) = "ptr_" ++ show baseType ++ "_" ++ show storage
-  show (DTypeStruct name fields) = "struct_" ++ name ++ show fields
-  show (DTypeFunction returnType args) = "func_" ++ show returnType ++ "_" ++ show args
+  show (DTypeVector size baseType) = "vec" ++ show size ++ show baseType
+  show (DTypeMatrix col baseType) = "mat" ++ show col ++ show baseType
+  show (DTypeArray size baseType) = "arr_" ++ show size ++ show baseType
+  show (DTypePointer storage baseType) = "ptr_" ++ show baseType ++ show storage
+  show (DTypeStruct name fields) = "struct_" ++ name ++ "_" ++ intercalate "_" (map show fields)
+  show (DTypeFunction returnType args) = "func_" ++ intercalate "_" (map show args) ++ "_" ++ show returnType
 
 bool :: DataType
 bool = DTypeBool

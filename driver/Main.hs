@@ -32,3 +32,4 @@ main = do
           -- print env
           -- putStrLn (instructionsToString code)
           putStrLn $ show code
+          writeFile "output.s" (instructionsToString code)
