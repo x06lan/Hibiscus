@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP       #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-missing-signatures #-}
 
@@ -7,18 +7,18 @@ module Hibiscus.CodeGen where
 -- import qualified Data.Set as Set
 
 import qualified Data.ByteString.Lazy.Char8 as BS
-import           Data.Fixed                 (Uni)
-import           Data.List                  (intercalate)
-import qualified Data.Map                   as Map
-import           Data.Maybe                 (fromMaybe)
-import           Hibiscus.Asm
-import           Hibiscus.Ast               (Dec)
-import qualified Hibiscus.Ast               as Ast
-import           Hibiscus.Lexer
-import           Hibiscus.Parser
-import           Hibiscus.Type
-import           Hibiscus.Typing
-import           Hibiscus.Typing            (DataType (DTypeFunction, DTypeVoid))
+import Data.Fixed (Uni)
+import Data.List (intercalate)
+import qualified Data.Map as Map
+import Data.Maybe (fromMaybe)
+import Hibiscus.Asm
+import Hibiscus.Ast (Dec)
+import qualified Hibiscus.Ast as Ast
+import Hibiscus.Lexer
+import Hibiscus.Parser
+import Hibiscus.Type
+import Hibiscus.Typing
+import Hibiscus.Typing (DataType (DTypeFunction, DTypeVoid))
 
 -- import Data.IntMap (fromList, foldlWithKey)
 
@@ -29,15 +29,15 @@ type Uniform = (String, DataType, StorageClass, Int)
 type DecType = Ast.Dec (Range, Ast.Type Range)
 
 data Config = Dict
-  { capability    :: Capability,
-    extension     :: String,
-    memoryModel   :: MemoryModel,
-    addressModel  :: AddressingModel,
+  { capability :: Capability,
+    extension :: String,
+    memoryModel :: MemoryModel,
+    addressModel :: AddressingModel,
     executionMode :: ExecutionMode,
-    shaderType    :: ExecutionModel,
-    source        :: (SourceLanguage, Int),
-    entryPoint    :: String,
-    uniforms      :: [Uniform] -- (name, type, position)
+    shaderType :: ExecutionModel,
+    source :: (SourceLanguage, Int),
+    entryPoint :: String,
+    uniforms :: [Uniform] -- (name, type, position)
   }
 
 type OpIdMap = Map.Map String OpId
@@ -45,42 +45,49 @@ type OpIdMap = Map.Map String OpId
 type Env = (String, DataType) -- function name, function type
 
 data Instructions = Instructions
-  { headerFields   :: [Instruction],
-    nameFields     :: [Instruction],
+  { headerFields :: [Instruction],
+    nameFields :: [Instruction],
     uniformsFields :: [Instruction],
-    constFields    :: [Instruction],
+    constFields :: [Instruction],
     functionFields :: [[Instruction]] -- [function]
   }
   deriving (Show)
 
 data State = State
   { idCount :: Int,
-    idMap   :: OpIdMap,
-    env     :: Env,
-    decs    :: [Ast.Dec (Range, Ast.Type Range)]
+    idMap :: OpIdMap,
+    env :: Env,
+    decs :: [Ast.Dec (Range, Ast.Type Range)]
   }
   deriving (Show)
+
 data ExprReturn
   = ExprResult Variable
   | ExprApplication (Either DataType OpId) DataType [Variable] -- name function, arguments
   deriving (Show)
 
+data IdType
+  = IdTypeDataType DataType -- done
+  | IdTypeConstant Literal -- done
+  | IdTypeVariable (Env, String) -- done
+  | IdTypeFunction String DataType -- name return type, arguments --tbd
+  deriving (Show)
+
 typeStringConvert :: BS.ByteString -> Maybe DataType
 typeStringConvert t = case t of
-  "Int"   -> Just int32
+  "Int" -> Just int32
   "Float" -> Just float32
-  "Bool"  -> Just bool
-  "Vec2"  -> Just vector2
-  "Vec3"  -> Just vector3
-  "Vec4"  -> Just vector4
-  "int"   -> Just int32
+  "Bool" -> Just bool
+  "Vec2" -> Just vector2
+  "Vec3" -> Just vector3
+  "Vec4" -> Just vector4
+  "int" -> Just int32
   "float" -> Just float32
-  "bool"  -> Just bool
-  "vec2"  -> Just vector2
-  "vec3"  -> Just vector3
-  "vec4"  -> Just vector4
-  _       -> Nothing
-
+  "bool" -> Just bool
+  "vec2" -> Just vector2
+  "vec3" -> Just vector3
+  "vec4" -> Just vector4
+  _ -> Nothing
 
 defaultConfig :: Config
 defaultConfig =
@@ -96,19 +103,12 @@ defaultConfig =
       uniforms = [("uv", vector2, Input, 0), ("outColor", vector4, Output, 0)]
     }
 
-data IdType
-  = IdTypeDataType DataType -- done
-  | IdTypeConstant Literal -- done
-  | IdTypeVariable (Env, String) -- done
-  | IdTypeFunction String DataType -- name return type, arguments --tbd
-  deriving (Show)
-
 idTypeToKey :: IdType -> String
 idTypeToKey d = case d of
-  IdTypeDataType t      -> "type " ++ show t
-  IdTypeConstant v      -> "const " ++ show v
+  IdTypeDataType t -> "type " ++ show t
+  IdTypeConstant v -> "const " ++ show v
   IdTypeVariable (e, s) -> "var " ++ show e ++ " " ++ s
-  IdTypeFunction s t    -> "func " ++ s ++ " " ++ show t
+  IdTypeFunction s t -> "func " ++ s ++ " " ++ show t
 
 findId :: IdType -> State -> Maybe OpId
 findId id s = Map.lookup (idTypeToKey id) (idMap s)
@@ -133,14 +133,14 @@ generateEntry key state =
            in (Map.insert (idTypeToKey key) idName currentMap, idName, currentCount)
         IdTypeConstant l ->
           let idName = case l of
-                LBool b  -> IdName ("bool" ++ show b)
-                LUint i  -> IdName ("uint" ++ show i)
-                LInt i   -> IdName ("int" ++ show i)
-                LFloat f -> IdName ("float" ++ show f)
-           in (Map.insert (idTypeToKey key) idName currentMap, Id currentCount, currentCount)
-        IdTypeVariable (e, s) ->
-          let idName = IdName (show e ++ "_" ++ s)
-           in (Map.insert (idTypeToKey key) idName currentMap, Id currentCount, currentCount)
+                LBool b -> IdName ("bool" ++ show b)
+                LUint i -> IdName ("uint" ++ show i)
+                LInt i -> IdName ("int" ++ show i)
+                LFloat f -> IdName ("float" ++ map (\c -> if c == '.' then '_' else c) (show f))
+           in (Map.insert (idTypeToKey key) idName currentMap, idName, currentCount)
+        IdTypeVariable ((envName, envType), s) ->
+          let idName = IdName (envName ++ "_" ++ s)
+           in (Map.insert (idTypeToKey key) idName currentMap, idName, currentCount)
         IdTypeFunction s t ->
           let DTypeFunction returnType args = t
               idName = IdName (s ++ "_" ++ intercalate "_" (map show args))
@@ -148,7 +148,7 @@ generateEntry key state =
 
 searchTypeId :: State -> DataType -> OpId
 searchTypeId m dt = case findId (IdTypeDataType dt) m of
-  Just x  -> x
+  Just x -> x
   Nothing -> error (show dt ++ " type not found")
 
 generateType :: State -> DataType -> (State, OpId, [Instruction])
@@ -166,7 +166,7 @@ generateType state dtype =
             DTypeArray _ baseType -> let (s', id, instrs) = generateType state baseType in (s', instrs)
             DTypePointer _ baseType -> let (s', id, instrs) = generateType state baseType in (s', instrs)
             DTypeStruct _ fields -> foldl (\(s, instrs) field -> let (s', id, instrs') = generateType s field in (s', instrs ++ instrs')) (state, []) fields
-            DTypeFunction returnType argsType -> foldl (\(s, instrs) t -> let (s', id, instrs') = generateType s t in (s', instrs ++ instrs')) (state, []) (returnType : argsType)
+            DTypeFunction returnType argsType -> foldl (\(s, instrs) t -> let (s', id, instrs') = generateType s (DTypePointer Function t) in (s', instrs ++ instrs')) (state, []) (returnType : argsType)
           (state'', typeId) = insertId (IdTypeDataType dtype) state'
           searchTypeId' = searchTypeId state''
 
@@ -194,7 +194,7 @@ generateType state dtype =
             ]
           updatedState =
             state''
-              { idCount = idCount state'' + 1,
+              { idCount = idCount state'',
                 idMap = idMap state''
               }
        in (updatedState, typeId, instruction ++ typeInstruction)
@@ -202,9 +202,9 @@ generateType state dtype =
 generateConst :: State -> Literal -> (State, OpId, [Instruction])
 generateConst state v =
   let dtype = case v of
-        LBool _  -> DTypeBool
-        LUint _  -> DTypeInt 32 0
-        LInt _   -> DTypeInt 32 1
+        LBool _ -> DTypeBool
+        LUint _ -> DTypeInt 32 0
+        LInt _ -> DTypeInt 32 1
         LFloat _ -> DTypeFloat 32
       (state', typeId, typeInstruction) = generateType state dtype
       (state'', constId) = insertId (IdTypeConstant v) state'
@@ -253,7 +253,7 @@ generateInit h =
       State
         { idCount = idCount,
           idMap = idMap,
-          env = ("", DTypeVoid),
+          env = (entryPoint h, DTypeVoid),
           decs = []
         }
     inst =
@@ -332,7 +332,7 @@ generateBinOp state v1 op v2 =
               Ast.Ge _ -> (bool, Instruction (Just id, OpFOrdGreaterThanEqual typeId1 e1 e2))
           (t1, t2) | t1 == t2 && (t1 == vector2 || t1 == vector3 || t1 == vector4) ->
             case op of
-              Ast.Plus _  -> (t1, Instruction (Just id, OpFAdd typeId1 e1 e2))
+              Ast.Plus _ -> (t1, Instruction (Just id, OpFAdd typeId1 e1 e2))
               Ast.Minus _ -> (t1, Instruction (Just id, OpFSub typeId1 e1 e2))
               Ast.Times _ -> (t1, Instruction (Just id, OpFMul typeId1 e1 e2))
           (t1, t2) | (t1 == vector2 || t1 == vector3 || t1 == vector4) && (t2 == int32 || t2 == float32) ->
@@ -351,7 +351,7 @@ generateBinOp state v1 op v2 =
 typeConvert :: Ast.Type Range -> DataType
 typeConvert t = case t of
   Ast.TVar _ (Ast.Name _ n) -> case typeStringConvert n of
-    Just x  -> x
+    Just x -> x
     Nothing -> error ("Not implemented" ++ show t)
   Ast.TPar _ t -> typeConvert t
   Ast.TArrow _ t1 t2 ->
@@ -369,18 +369,17 @@ typeConvert t = case t of
 
 generateExpr :: State -> Ast.Expr (Range, Ast.Type Range) -> (State, ExprReturn, [Instruction], [Instruction])
 generateExpr state expr =
-  let id = Id (idCount state + 1)
-      returnVar = ExprResult (id, float32)
-      state' = state {idCount = idCount state + 1}
+  let -- returnVar = ExprResult (id, float32)
+      state' = state
    in case expr of
         Ast.EInt _ i -> handleConst state' (LInt i) int32
         Ast.EFloat _ f -> handleConst state' (LFloat f) float32
-        Ast.EList _ l -> handleList state' l returnVar
+        Ast.EList _ l -> error "List"
         Ast.EPar _ e -> generateExpr state' e
         Ast.EVar (_, t1) (Ast.Name (_, t2) n) -> handleVar state' t1 n
         Ast.EString _ _ -> error "String"
         Ast.EUnit _ -> error "Unit"
-        Ast.EApp _ e1 e2 -> handleApp state' e1 e2 returnVar
+        Ast.EApp _ e1 e2 -> handleApp state' e1 e2
         Ast.EIfThenElse _ e1 e2 e3 -> handleIfThenElse state' e1 e2 e3
         Ast.ENeg _ e -> handleNeg state' e
         Ast.EBinOp _ e1 op e2 -> handleBinOp state' e1 op e2
@@ -401,68 +400,87 @@ handleList state l returnVar =
 handleVar :: State -> Ast.Type Range -> BS.ByteString -> (State, ExprReturn, [Instruction], [Instruction])
 handleVar state t1 n =
   let dType = typeConvert t1
-      (state'', var, typeInst, []) = case dType of
+      (state1, typeId, typeInst) = generateType state dType
+      (state3, var, typeInst', inst) = case dType of
         DTypeFunction returnType argsType ->
           -- function
-          let (state', typeId, typeInst) = generateType state dType
-           in case (typeStringConvert n) of
-                Just x ->
-                  let (state'', id) = insertId (IdTypeFunction (BS.unpack n) dType) state'
-                   in (state'', ExprApplication (Left returnType) dType [], typeInst, [])
-                Nothing ->
-                  let (state', id) = insertId (IdTypeFunction (BS.unpack n) dType) state'
-                   in (state', ExprApplication (Right id) dType [], typeInst, [])
+          case (typeStringConvert n) of
+            Just x ->
+              -- constructor
+              let (state2, id) = insertId (IdTypeFunction (BS.unpack n) dType) state1
+               in (state2, ExprApplication (Left returnType) dType [], typeInst, [])
+            Nothing ->
+              -- function
+              let (state2, id) = insertId (IdTypeFunction (BS.unpack n) dType) state1
+               in (state2, ExprApplication (Right id) dType [], typeInst, [])
         _ ->
           -- local variable
-          let (state', typeId, typeInst) = generateType state dType
-              (state'', id) = insertId (IdTypeVariable (env state, BS.unpack n)) state'
-           in (state'', ExprResult (id, dType), typeInst, [])
-   in (state'', var, typeInst, [])
+          let (state2, varId) = insertId (IdTypeVariable (env state, BS.unpack n)) state1
+              id = idCount state2 + 1
+              inst = [Instruction (Just (Id id), OpLoad typeId varId)]
+              state2' =
+                state2
+                  { idCount = id
+                  }
+           in (state2', ExprResult (Id id, dType), typeInst, inst)
+   in (state3, var, typeInst, inst)
 
 findVar :: State -> BS.ByteString -> DataType -> Variable
 findVar state n dType =
   case findId (IdTypeVariable (env state, BS.unpack n)) state of
-    Just x  -> (x, dType)
+    Just x -> (x, dType)
     Nothing -> error (show n ++ " variable not found")
 
-handleApp :: State -> Ast.Expr (Range, Ast.Type Range) -> Ast.Expr (Range, Ast.Type Range) -> ExprReturn -> (State, ExprReturn, [Instruction], [Instruction])
-handleApp state e1 e2 returnVar =
-  let (state', var1, typeInst1, inst1) = generateExpr state e1
-      (state'', var2, typeInst2, inst2) = generateExpr state' e2
-      (state''', var3, typeInst3, inst3) = case var1 of
+handleApp :: State -> Ast.Expr (Range, Ast.Type Range) -> Ast.Expr (Range, Ast.Type Range) -> (State, ExprReturn, [Instruction], [Instruction])
+handleApp state e1 e2 =
+  let (state1, var1, typeInst1, inst1) = generateExpr state e1
+      (state2, var2, typeInst2, inst2) = generateExpr state1 e2
+      (state4, var3, typeInst3, inst3) = case var1 of
         ExprApplication funcId (DTypeFunction returnType argTypes) args ->
           let args' = case var2 of
                 ExprResult v -> args ++ [v] -- add argument
-                _            -> error "Expected ExprResult"
+                _ -> error "Expected ExprResult"
+              functionType = DTypeFunction returnType argTypes
            in case (length args', length argTypes) of
                 (l, r) | l == r -> case funcId of
-                  Left t   -> error "Not implemented"
-                  Right id -> applyFunction state id returnType args'
-                (l, r) | l < r ->
-                      let (state', typeId, typeInst) = generateType state returnType
-                          (state'', id) = insertId (IdTypeVariable (env state, BS.unpack "")) state'
-                       in (state'', ExprApplication funcId (DTypeFunction returnType argTypes) args', typeInst1 ++ typeInst2 ++ typeInst3, inst1 ++ inst2 ++ inst3)
+                  Left t -> handleConstructor state2 t functionType args'
+                  Right id -> applyFunction state2 id returnType args'
+                -- _ -> error (show var1 ++ ":" ++ show var2)
+                (l, r)
+                  | l < r -> (state2, ExprApplication funcId functionType args', [], [])
                 (l, r) | l > r -> error "Too many arguments"
-        ExprApplication a _ d -> error (show var1)
         _ -> error (show var1)
-   in (state''', var3, typeInst1 ++ typeInst2 ++ typeInst3, inst1 ++ inst2 ++ inst3)
+   in (state4, var3, typeInst1 ++ typeInst2 ++ typeInst3, inst1 ++ inst2 ++ inst3)
 
-handleConstructor :: State -> DataType -> DataType-> [Variable] -> (State, ExprReturn, [Instruction], [Instruction])
+handleConstructor :: State -> DataType -> DataType -> [Variable] -> (State, ExprReturn, [Instruction], [Instruction])
 handleConstructor state returnType functionType args =
   let (state', typeId, typeInst) = generateType state returnType
-      (state'', id) = insertId (IdTypeVariable (env state, BS.unpack "")) state'
-    in (state'', ExprResult(id, returnType), typeInst, [])
+      id = idCount state + 1
+      returnId = Id id
+      inst = [Instruction (Just returnId, OpCompositeConstruct typeId (ShowList (map fst args)))]
+   in (state', ExprResult (returnId, returnType), typeInst, inst)
 
+functionPointer :: State -> Variable -> (State, ExprReturn, [Instruction], [Instruction])
+functionPointer state args =
+  let (state1, typeId, typeInst) = generateType state (snd args)
+      returnId = Id (idCount state1 + 1)
+      inst = [Instruction (Just returnId, OpVariable typeId Function)]
+      state' = state1 {idCount = idCount state1 + 1}
+   in -- (state', vars, typeInst, inst) =
+      -- inst = [Instruction (Just returnId, OpFunctionPointer (searchTypeId state returnType) (ShowList (map fst args)))]
+      -- state' = state
+      (state', ExprResult (returnId, snd args), typeInst, inst)
+
+-- error "Not implemented function pointer"
+
+-- (state', ExprResult (returnId, returnType), [], inst)
 applyFunction :: State -> OpId -> DataType -> [Variable] -> (State, ExprReturn, [Instruction], [Instruction])
 applyFunction state id returnType args =
-  let
-      (state', typeId, typeInst) = generateType state returnType
-
-   in -- state'' = insertId (IdTypeVariable (env state) (BS.unpack "")) state'
-      -- var = case findId (IdTypeVariable (env state) (BS.unpack "")) state'' of
-      --   Just x -> (x, returnType)
-      --   Nothing -> error "Variable not found"
-      error "Not implemented apply function"
+  let returnId = Id (idCount state + 1)
+      -- (state', vars, typeInst, inst) =
+      inst = [Instruction (Just returnId, OpFunctionCall (searchTypeId state returnType) id (ShowList (map fst args)))]
+      state' = state {idCount = idCount state + 1}
+   in (state', ExprResult (returnId, returnType), [], inst)
 
 handleIfThenElse :: State -> Ast.Expr (Range, Ast.Type Range) -> Ast.Expr (Range, Ast.Type Range) -> Ast.Expr (Range, Ast.Type Range) -> (State, ExprReturn, [Instruction], [Instruction])
 handleIfThenElse state e1 e2 e3 =
@@ -471,7 +489,7 @@ handleIfThenElse state e1 e2 e3 =
       (state3, var3, typeInst3, inst3) = generateExpr state2 e3
       conditionId = case var1 of
         (id, DTypeBool) -> id
-        _               -> error "Expected bool"
+        _ -> error "Expected bool"
       -- todo handle function type
       id = idCount state3
       inst1' = inst1 ++ [Instruction (Nothing, OpBranchConditional conditionId (Id (id + 1)) (Id (id + 2)))]
@@ -489,19 +507,16 @@ handleIfThenElse state e1 e2 e3 =
 
 handleNeg :: State -> Ast.Expr (Range, Ast.Type Range) -> (State, ExprReturn, [Instruction], [Instruction])
 handleNeg state e =
-  let (state', ExprResult var, typeInst1, inst1) = generateExpr state e
-      (state'', var', typeInst2, inst2) = generateNegOp state' var
-   in (state'', ExprResult var', typeInst1 ++ typeInst2, inst1 ++ inst2)
+  let (state1, ExprResult var, typeInst1, inst1) = generateExpr state e
+      (state2, var', typeInst2, inst2) = generateNegOp state1 var
+   in (state2, ExprResult var', typeInst1 ++ typeInst2, inst1 ++ inst2)
 
 handleBinOp :: State -> Ast.Expr (Range, Ast.Type Range) -> Ast.Op (Range, Ast.Type Range) -> Ast.Expr (Range, Ast.Type Range) -> (State, ExprReturn, [Instruction], [Instruction])
 handleBinOp state e1 op e2 =
-  let (state', ExprResult var1, typeInst1, inst1) = generateExpr state e1
-      (state'', ExprResult var2, typeInst2, inst2) = generateExpr state' e2
-      (state''', var3, typeInst3, inst3) = generateBinOp state'' var1 op var2
-   in (state''', ExprResult var3, typeInst1 ++ typeInst2 ++ typeInst3, inst1 ++ inst2 ++ inst3)
-
-notImplemented :: String -> a
-notImplemented feature = error (feature ++ " not implemented")
+  let (state1, ExprResult var1, typeInst1, inst1) = generateExpr state e1
+      (state2, ExprResult var2, typeInst2, inst2) = generateExpr state1 e2
+      (state3, var3, typeInst3, inst3) = generateBinOp state2 var1 op var2
+   in (state3, ExprResult var3, typeInst1 ++ typeInst2 ++ typeInst3, inst1 ++ inst2 ++ inst3)
 
 generateFunction :: (State, Instructions) -> DecType -> (State, OpId, Instructions)
 generateFunction (state, inst) (Ast.DecAnno _ name t) = (state, IdName "", inst)
@@ -514,9 +529,9 @@ generateFunction (state, inst) (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
             let DTypeFunction returnType argsType = typeConvert t
                 argsType' = map (DTypePointer Function) argsType
              in (DTypeFunction returnType argsType', returnType)
-      (state', typeId, typeInstructions) = generateType state functionType
-      (state'', funcId) = insertId (IdTypeFunction (BS.unpack name) functionType) state'
-      returnTypeId = searchTypeId state'' returnType
+      (state1, typeId, typeInstructions) = generateType state functionType
+      (state2, funcId) = insertId (IdTypeFunction (BS.unpack name) functionType) state1
+      returnTypeId = searchTypeId state2 returnType
       functionParamInst = []
       -- [Instruction (Just funcId, OpFunctionParameter (searchTypeId state'' t) (IdName "args"))]
 
@@ -529,16 +544,16 @@ generateFunction (state, inst) (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
             functionFields = functionFields inst ++ [funcInst]
           }
    in -- (state'''', ExprResult var, typeInst, inst') = generateExpr state''' e
-      (state', funcId, inst')
+      (state2, funcId, inst')
 
 generateMainFunction :: (State, Instructions) -> [Uniform] -> DecType -> (State, Instructions)
 generateMainFunction (state, inst) uniforms (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
   let (functionType, returnType) = (DTypeFunction DTypeVoid [], DTypeVoid)
-      (state', typeId, typeInstructions) = generateType state functionType
-      (state'', funcId) = insertId (IdTypeFunction (BS.unpack name) functionType) state'
-      (state''', inst') = generateUniform (state'', inst) uniforms
-      returnTypeId = searchTypeId state'' returnType
-      (state'''', ExprResult var, typeInst, exprInst) = generateExpr state''' e
+      (state1, typeId, typeInstructions) = generateType state functionType
+      (state2, funcId) = insertId (IdTypeFunction (BS.unpack name) functionType) state1
+      (state3, inst') = generateUniform (state2, inst) uniforms
+      returnTypeId = searchTypeId state3 returnType
+      (state4, ExprResult var, typeInst, exprInst) = generateExpr state3 e
 
       funcInst =
         [Instruction (Just funcId, OpFunction returnTypeId None typeId)]
@@ -551,7 +566,7 @@ generateMainFunction (state, inst) uniforms (Ast.Dec (_, t) (Ast.Name (_, _) nam
           { constFields = constFields inst ++ typeInstructions ++ typeInst,
             functionFields = functionFields inst' ++ [funcInst]
           }
-   in (state''', inst'')
+   in (state4, inst'')
 
 -- error (show exprInst ++ show typeInst)
 
@@ -559,7 +574,7 @@ findDec :: [DecType] -> String -> DecType
 findDec decs name =
   case filter (\d -> case d of Ast.Dec (_, _) (Ast.Name (_, _) n) _ _ -> n == BS.pack name; _ -> False) decs of
     [d] -> d
-    _   -> error "Main function not found"
+    _ -> error "Main function not found"
 
 instructionsToString :: Instructions -> String
 instructionsToString inst =
