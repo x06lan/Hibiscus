@@ -1,12 +1,17 @@
 module Hibiscus.Typing where
 
+import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.List (intercalate)
 import Hibiscus.Asm (StorageClass)
+import qualified Hibiscus.Ast as Ast
+import Hibiscus.Lexer
+import Hibiscus.Parser
 
 -- import qualified Data.Set as Set
 
 data DataType
-  = DTypeVoid
+  = DTypeUnknown
+  | DTypeVoid
   | DTypeBool
   | DTypeInt Int Int
   | DTypeFloat Int -- size
@@ -16,9 +21,10 @@ data DataType
   | DTypePointer StorageClass DataType -- pointer type
   | DTypeStruct String [DataType] -- name, fields
   | DTypeFunction DataType [DataType] -- return type, arguments
-  deriving (Eq)
+  deriving (Eq, Ord)
 
 instance Show DataType where
+  show DTypeUnknown = "unknown"
   show DTypeVoid = "void"
   show DTypeBool = "bool"
   show (DTypeInt size sign) =
@@ -54,3 +60,43 @@ vector3 = DTypeVector 4 float32
 
 vector4 :: DataType
 vector4 = DTypeVector 4 float32
+
+typeFunctionConvert :: Ast.Type Range -> DataType
+typeFunctionConvert t = case t of
+  Ast.TArrow _ t1 t2 ->
+    let processArrow :: Ast.Type Range -> ([DataType], DataType)
+        processArrow (Ast.TArrow _ t1' t2') =
+          let (args, ret) = processArrow t2'
+           in (typeConvert t1' : args, ret)
+        processArrow t = ([], typeConvert t)
+
+        (argTypes, returnType) = processArrow t
+     in DTypeFunction returnType argTypes
+  _ -> error ("Not a function type" ++ show t)
+
+typeConvert :: Ast.Type Range -> DataType
+typeConvert t = case t of
+  Ast.TVar _ (Ast.Name _ n) -> case typeStringConvert (BS.unpack n) of
+    Just x -> x
+    Nothing -> error ("Not implemented" ++ show t)
+  Ast.TPar _ t -> typeConvert t
+  Ast.TArrow _ t1 t2 -> typeFunctionConvert t
+  Ast.TApp _ t -> error ("Not implemented App" ++ show t)
+  Ast.TUnit _ -> DTypeVoid
+  _ -> error ("Not implemented?" ++ show t)
+
+typeStringConvert :: String -> Maybe DataType
+typeStringConvert t = case t of
+  "Int" -> Just int32
+  "Float" -> Just float32
+  "Bool" -> Just bool
+  "Vec2" -> Just vector2
+  "Vec3" -> Just vector3
+  "Vec4" -> Just vector4
+  -- "int" -> Just int32
+  -- "float" -> Just float32
+  -- "bool" -> Just bool
+  -- "vec2" -> Just vector2
+  -- "vec3" -> Just vector3
+  -- "vec4" -> Just vector4
+  _ -> Nothing

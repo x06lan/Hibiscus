@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs             #-}
-{-# LANGUAGE InstanceSigs      #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# OPTIONS_GHC -w #-}
 
 module Hibiscus.Asm
@@ -21,15 +21,12 @@ module Hibiscus.Asm
   )
 where
 
--- import Data.Functor.Contravariant (Op)
--- import GHC.ExecutionStack (Location)
-
 data Literal
   = LBool Bool
   | LUint Int
   | LInt Int
   | LFloat Float
-  deriving (Show)
+  deriving (Show, Eq, Ord)
 
 data OpId
   = IdName String
@@ -37,14 +34,14 @@ data OpId
 
 instance Show OpId where
   show (IdName s) = "%" ++ s
-  show (Id i)     = "%" ++ show i
+  show (Id i) = "%" ++ show i
 
 type ResultType = OpId
 
 newtype ShowList a = ShowList [a]
 
 instance (Show a) => Show (ShowList a) where
-  show (ShowList [])       = ""
+  show (ShowList []) = ""
   show (ShowList (x : xs)) = show x ++ " " ++ show (ShowList xs)
 
 type ResultId = OpId
@@ -71,7 +68,7 @@ data StorageClass
   | Incoming
   | Outgoing
   | Pointer
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 data ExecutionModel
   = Vertex
@@ -97,9 +94,9 @@ data Decoration
 
 instance Show Decoration where
   show RelaxedPrecision = "RelaxedPrecision"
-  show (SpecId i)       = "SpecId " ++ show i
-  show Block            = "Block"
-  show (Location i)     = "Location " ++ show i
+  show (SpecId i) = "SpecId " ++ show i
+  show Block = "Block"
+  show (Location i) = "Location " ++ show i
 
 data FunctionControl
   = None
@@ -259,9 +256,9 @@ instance Show Instruction where
       ++ show r
       ++ " "
       ++ ( case l of
-             LBool b  -> show b
-             LUint i  -> show i
-             LInt i   -> show i
+             LBool b -> show b
+             LUint i -> show i
+             LInt i -> show i
              LFloat f -> show f
          )
   show (Instruction (Nothing, op)) = show op
