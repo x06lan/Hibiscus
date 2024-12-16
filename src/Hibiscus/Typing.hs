@@ -36,7 +36,7 @@ instance Show DataType where
   show (DTypeVector size baseType) = "vec" ++ show size ++ show baseType
   show (DTypeMatrix col baseType) = "mat" ++ show col ++ show baseType
   show (DTypeArray size baseType) = "arr_" ++ show size ++ show baseType
-  show (DTypePointer storage baseType) = "ptr_" ++ show baseType ++ show storage
+  show (DTypePointer storage baseType) = "ptr_" ++ show baseType ++ "_" ++ show storage
   show (DTypeStruct name fields) = "struct_" ++ name ++ "_" ++ intercalate "_" (map show fields)
   show (DTypeFunction returnType args) = "func_" ++ intercalate "_" (map show args) ++ "_" ++ show returnType
 
