@@ -421,12 +421,12 @@ handleVarFunction state name (returnType, args) =
             (Just x, return, args)
               | (x == return) -> (state, ExprApplication (TypeConstructor return) (return, args) [], emptyInstructions, [])
             (Nothing, return, args)
-              | (name == "foldl") -> (state, ExprApplication FunctionFoldl (return, args) [], emptyInstructions, [])
-              | (name == "map") -> (state, ExprApplication FunctionMap (return, args) [], emptyInstructions, [])
-              | (name == "extract_0") -> if length args == 1 && return == float32 then (state, ExprApplication (TypeExtractor returnType [0]) (return, args) [], emptyInstructions, []) else error (name ++ ":" ++ show args)
-              | (name == "extract_1") -> if length args == 1 && return == float32 then (state, ExprApplication (TypeExtractor returnType [1]) (return, args) [], emptyInstructions, []) else error (name ++ ":" ++ show args)
-              | (name == "extract_2") -> if length args == 1 && return == float32 then (state, ExprApplication (TypeExtractor returnType [2]) (return, args) [], emptyInstructions, []) else error (name ++ ":" ++ show args)
-              | (name == "extract_3") -> if length args == 1 && return == float32 then (state, ExprApplication (TypeExtractor returnType [3]) (return, args) [], emptyInstructions, []) else error (name ++ ":" ++ show args)
+              | name == "foldl" -> (state, ExprApplication FunctionFoldl (return, args) [], emptyInstructions, [])
+              | name == "map" -> (state, ExprApplication FunctionMap (return, args) [], emptyInstructions, [])
+              | name == "extract_0" -> if length args == 1 && return == float32 then (state, ExprApplication (TypeExtractor returnType [0]) (return, args) [], emptyInstructions, []) else error (name ++ ":" ++ show args)
+              | name == "extract_1" -> if length args == 1 && return == float32 then (state, ExprApplication (TypeExtractor returnType [1]) (return, args) [], emptyInstructions, []) else error (name ++ ":" ++ show args)
+              | name == "extract_2" -> if length args == 1 && return == float32 then (state, ExprApplication (TypeExtractor returnType [2]) (return, args) [], emptyInstructions, []) else error (name ++ ":" ++ show args)
+              | name == "extract_3" -> if length args == 1 && return == float32 then (state, ExprApplication (TypeExtractor returnType [3]) (return, args) [], emptyInstructions, []) else error (name ++ ":" ++ show args)
               | True ->
                   let dec = fromMaybe (error (name ++ show args)) (findDec (decs state) name Nothing)
                       (state', id, inst1) = generateFunction (state, emptyInstructions) dec
@@ -452,7 +452,6 @@ handleVar state t1 n =
                 Just x -> (state1, x, emptyInstructions, [])
                 Nothing ->
                   let ExprResult (varId, varType) = fromMaybe (error ("can find var:" ++ show (env state1, BS.unpack n, dType))) (findResult state1 (ResultVariable (env state1, BS.unpack n, dType)))
-                      -- inst = [Instruction (Just varId, OpVariable typeId Function)]
                       (state2, ExprResult (valueId, _)) = insertResult state1 (ResultVariableValue (env state1, BS.unpack n, dType)) Nothing
                       inst = [Instruction (Just valueId, OpLoad typeId varId)]
                    in (state2, ExprResult (valueId, varType), emptyInstructions, inst)
@@ -463,7 +462,6 @@ handleApp state e1 e2 =
   let (state1, var1, inst1, stackInst1) = generateExpr state e1
       (state2, var2, inst2, stackInst2) = generateExpr state1 e2
       (state4, var3, inst3, stackInst3) = case var1 of
-        -- ExprApplication funcId (DTypeFunction returnType argTypes) args ->
         ExprApplication funcType (returnType, argTypes) args ->
           let args' = case var2 of
                 ExprResult v -> args ++ [v] -- add argument
@@ -608,7 +606,8 @@ generateFunction (state, inst) (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
       functionType = DTypeFunction returnType argsType
       (state1, typeId, inst1) = generateType state functionType
 
-      state2 = state1 {env = (BS.unpack name, functionType)}
+      state2 = state1 {idCount = idCount state1 + 1, env = (BS.unpack name, functionType)}
+      labelId = Id (idCount state2)
 
       (state3, ExprResult (funcId, funcType)) = insertResult state2 (ResultFunction (BS.unpack name) (returnType, argsType)) Nothing
       (state4, inst2, paramInst) = generateFunctionParam state3 args
@@ -619,6 +618,7 @@ generateFunction (state, inst) (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
       funcInst =
         [Instruction (Nothing, Comment ("function " ++ BS.unpack name))]
           ++ [Instruction (Just funcId, OpFunction returnTypeId None typeId)]
+          ++ [Instruction (Just labelId, OpLabel)]
           ++ paramInst
           ++ exprInst
           ++ [Instruction (Nothing, OpReturnValue resultId)]
@@ -636,7 +636,9 @@ generateMainFunction (state, inst) uniforms (Ast.Dec (_, t) (Ast.Name (_, _) nam
       (state1, typeId, inst1) = generateType state functionType
       (state2, ExprResult (funcId, _)) = insertResult state1 (ResultCustom "func ") (Just (ExprResult (IdName (BS.unpack name), functionType)))
 
-      state3 = state2 {env = (BS.unpack name, functionType)}
+      state3 = state2 {idCount = idCount state2 + 1, env = (BS.unpack name, functionType)}
+      labelId = Id (idCount state2)
+
       (state4, inst2) = generateUniforms state3 args
       (state5, ExprResult (resultId, _), inst3, exprInst) = generateExpr state4 e
       returnTypeId = searchTypeId state5 returnType
@@ -648,11 +650,11 @@ generateMainFunction (state, inst) uniforms (Ast.Dec (_, t) (Ast.Name (_, _) nam
       funcInst =
         [Instruction (Nothing, Comment "function main")]
           ++ [Instruction (Just funcId, OpFunction returnTypeId None typeId)]
+          ++ [Instruction (Just labelId, OpLabel)]
           ++ exprInst
           ++ saveInst
-          ++ [ Instruction (Nothing, OpReturn),
-               Instruction (Nothing, OpFunctionEnd)
-             ]
+          ++ [Instruction (Nothing, OpReturn)]
+          ++ [Instruction (Nothing, OpFunctionEnd)]
 
       inst4 = (inst +++ inst1 +++ inst2 +++ inst3)
       inst5 = inst4 {functionFields = functionFields inst4 ++ [funcInst]}
