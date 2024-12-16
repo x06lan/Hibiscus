@@ -150,9 +150,9 @@ data Ops
   | OpTypeFloat Int -- bit width
   | OpTypeVector OpId Int -- component count
   | OpTypeMatrix OpId Int -- vectorTypeId column count
-  | OpTypeArray OpId Int -- data type id
+  | OpTypeArray OpId OpId -- data type id
   | OpTypeStruct (ShowList OpId) -- data types id
-  | OpTypePointer OpId StorageClass
+  | OpTypePointer StorageClass OpId
   | OpTypeFunction OpId (ShowList OpId) -- data types id
   | -- OpConstant
     OpConstantTrue ResultType
@@ -181,7 +181,7 @@ data Ops
   | OpBitcast ResultType OpId
   | -- OpComposite
     OpCompositeConstruct ResultType (ShowList OpId)
-  | OpCompositeExtract ResultType OpId [Int]
+  | OpCompositeExtract ResultType OpId (ShowList Int)
   | OpCompositeInsert ResultType OpId OpId (ShowList OpId)
   | -- OpArithmetic
     OpSNegate ResultType OpId
