@@ -391,7 +391,7 @@ handleVarFunction state name (returnType, args) =
                   let dec = fromMaybe (error (name ++ show args)) (findDec (decs state) name Nothing)
                       (state', id, inst1) = generateFunction (state, emptyInstructions) dec
                    in -- temp =generateFunction
-                      -- error (show id ++ show inst1)
+                      -- error (show id ++ show (functionFields inst1))
                       (state', ExprApplication (CustomFunction id name) (return, args) [], inst1, [])
             -- custom function -- cus            (Nothing, return, args) -> -- custom function -- cus            (Nothing, return, args) -> -- custom function -- cus            (Nothing, return, args) -> -- custom function
             -- case findResult state (ResultFunction name ) of {}
@@ -586,7 +586,7 @@ generateFunctionParam state arg =
       (state', inst, stackInst) =
         foldl
           ( \(s, i, stackInst) (name, dType) ->
-              let (s', typeId, inst1) = generateType s dType
+              let (s', typeId, inst1) = generateType s (DTypePointer Function dType)
                   (s'', ExprResult (id, _)) = insertResult s' (ResultVariable (env s', name, dType)) Nothing
                   paramInst = [Instruction (Just id, OpFunctionParameter typeId)]
                in (s'', i +++ inst1, stackInst ++ paramInst)
@@ -604,20 +604,21 @@ generateFunction (state, inst) (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
       functionType = DTypeFunction returnType argsType
       (state1, typeId, inst1) = generateType state functionType
 
-      state2 = state1 {idCount = idCount state1 + 1, env = (BS.unpack name, functionType)}
-      labelId = Id (idCount state2)
+      state2 = state1 {env = (BS.unpack name, functionType)}
 
       (state3, ExprResult (funcId, funcType)) = insertResult state2 (ResultFunction (BS.unpack name) (returnType, argsType)) Nothing
       (state4, inst2, paramInst) = generateFunctionParam state3 args
-      (state5, ExprResult (resultId, _), inst3, exprInst) = generateExpr state4 e
-      state6 = state5 {env = env state}
-      returnTypeId = searchTypeId state3 returnType
+      state5 = state4 {idCount = idCount state4 + 1}
+      labelId = Id (idCount state5)
+      (state6, ExprResult (resultId, _), inst3, exprInst) = generateExpr state5 e
+      state7 = state6 {env = env state}
+      returnTypeId = searchTypeId state7 returnType
 
       funcInst =
         [Instruction (Nothing, Comment ("function " ++ BS.unpack name))]
           ++ [Instruction (Just funcId, OpFunction returnTypeId None typeId)]
-          ++ [Instruction (Just labelId, OpLabel)]
           ++ paramInst
+          ++ [Instruction (Just labelId, OpLabel)]
           ++ exprInst
           ++ [Instruction (Nothing, OpReturnValue resultId)]
           ++ [Instruction (Nothing, OpFunctionEnd)]
@@ -625,7 +626,7 @@ generateFunction (state, inst) (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
       inst5 =
         inst4 {functionFields = functionFields inst4 ++ [funcInst]}
    in -- (state'''', ExprResult var, typeInst, inst') = generateExpr state''' e
-      (state6, funcId, inst4)
+      (state7, funcId, inst5)
 
 generateMainFunction :: (State, Instructions) -> Config -> DecType -> (State, Instructions)
 generateMainFunction (state, inst) config (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =

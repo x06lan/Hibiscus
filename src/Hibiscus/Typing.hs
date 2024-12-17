@@ -56,7 +56,7 @@ vector2 :: DataType
 vector2 = DTypeVector 2 float32
 
 vector3 :: DataType
-vector3 = DTypeVector 4 float32
+vector3 = DTypeVector 3 float32
 
 vector4 :: DataType
 vector4 = DTypeVector 4 float32
