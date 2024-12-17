@@ -33,7 +33,7 @@ instance Show DataType where
       1 -> "i" ++ show size
       _ -> error "Invalid sign"
   show (DTypeFloat size) = "f" ++ show size
-  show (DTypeVector size baseType) = "vec" ++ show size ++ show baseType
+  show (DTypeVector size baseType) = "v" ++ show size ++ show baseType
   show (DTypeMatrix col baseType) = "mat" ++ show col ++ show baseType
   show (DTypeArray size baseType) = "arr_" ++ show size ++ show baseType
   show (DTypePointer storage baseType) = "ptr_" ++ show baseType ++ "_" ++ show storage

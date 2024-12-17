@@ -6,17 +6,10 @@ module Hibiscus.CodeGen where
 
 -- import qualified Data.Set as Set
 
-import Control.Applicative (Alternative (empty))
-import Control.Exception (handle)
-import Data.ByteString (cons)
 import qualified Data.ByteString.Lazy.Char8 as BS
-import Data.Data (Data)
-import Data.Functor.Classes (readsUnary)
-import Data.List (find, intercalate)
+import Data.List (intercalate)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
-import GHC.ExecutionStack (showStackTrace)
-import GHC.Generics (URec (UInt))
 import Hibiscus.Asm
 import Hibiscus.Ast (Dec)
 import qualified Hibiscus.Ast as Ast
@@ -47,8 +40,8 @@ data Config = Config
     executionMode :: ExecutionMode,
     shaderType :: ExecutionModel,
     source :: (SourceLanguage, Int),
-    entryPoint :: String,
-    uniforms :: [Uniform] -- (name, type, position)
+    entryPoint :: String
+    -- uniforms :: [Uniform] -- (name, type, position)
   }
 
 data FunctionType
@@ -106,8 +99,8 @@ defaultConfig =
       shaderType = Fragment,
       executionMode = OriginUpperLeft,
       extension = "GLSL.std.450",
-      entryPoint = "main",
-      uniforms = [("uv", vector2, Input, 0), ("outColor", vector4, Output, 0)]
+      entryPoint = "main"
+      -- uniforms = [("uv", vector2, Input, 0), ("outColor", vector4, Output, 0)]
     }
 
 emptyInstructions :: Instructions
@@ -191,12 +184,12 @@ generateType state dType =
             DTypeBool -> (state, emptyInstructions)
             DTypeInt _ _ -> (state, emptyInstructions)
             DTypeFloat _ -> (state, emptyInstructions)
-            DTypeVector _ baseType -> let (s', id, instrs) = generateType state baseType in (s', instrs)
-            DTypeMatrix _ baseType -> let (s', id, instrs) = generateType state baseType in (s', instrs)
-            DTypeArray _ baseType -> let (s', id, instrs) = generateType state baseType in (s', instrs)
-            DTypePointer _ baseType -> let (s', id, instrs) = generateType state baseType in (s', instrs)
-            DTypeStruct _ fields -> foldl (\(s, instrs) field -> let (s', id, instrs') = generateType s field in (s', instrs +++ instrs')) (state, emptyInstructions) fields
-            DTypeFunction returnType argsType -> foldl (\(s, instrs) t -> let (s', id, instrs') = generateType s (DTypePointer Function t) in (s', instrs +++ instrs')) (state, emptyInstructions) (returnType : argsType)
+            DTypeVector _ baseType -> let (s', id, inst') = generateType state baseType in (s', inst')
+            DTypeMatrix _ baseType -> let (s', id, inst') = generateType state baseType in (s', inst')
+            DTypeArray _ baseType -> let (s', id, inst') = generateType state baseType in (s', inst')
+            DTypePointer _ baseType -> let (s', id, inst') = generateType state baseType in (s', inst')
+            DTypeStruct _ fields -> foldl (\(s, inst') field -> let (s', id, inst'') = generateType s field in (s', inst' +++ inst'')) (state, emptyInstructions) fields
+            DTypeFunction returnType argsType -> foldl (\(s, inst') t -> let (s', id, inst'') = generateType s (DTypePointer Function t) in (s', inst' +++ inst'')) (state, emptyInstructions) (returnType : argsType)
           (state2, ExprResult (typeId, _)) = insertResult state1 (ResultDataType dType) Nothing
           searchTypeId' = searchTypeId state2
 
@@ -211,8 +204,8 @@ generateType state dType =
             DTypeArray size baseType ->
               let (state4, constId, inst2) = generateConst state3 (LUint size)
                   arrayInst = [Instruction (Just typeId, OpTypeArray (searchTypeId' baseType) constId)]
-                  inst3 = inst2 {typeFields = typeFields inst2 ++ arrayInst}
-               in (state4, inst3)
+                  inst3' = inst2 {typeFields = typeFields inst2 ++ arrayInst}
+               in (state4, inst3')
             DTypePointer storage DTypeVoid -> (state2, emptyInstructions)
             DTypePointer storage baseType ->
               let pointerInst = [Instruction (Just typeId, OpTypePointer storage (searchTypeId' baseType))]
@@ -228,9 +221,9 @@ generateType state dType =
                in (state2, inst2')
 
           updatedState =
-            state2
-              { idCount = idCount state2,
-                idMap = idMap state2
+            state3
+              { idCount = idCount state3,
+                idMap = idMap state3
               }
        in (updatedState, typeId, inst +++ inst3)
 
@@ -246,39 +239,6 @@ generateConst state v =
       constInstruction = [Instruction (Just constId, OpConstant typeId v)]
       inst = typeInst {constFields = constFields typeInst ++ constInstruction}
    in (state'', constId, inst)
-
-generateInit :: Config -> [DecType] -> (State, Instructions)
-generateInit h dec =
-  (state1, inst)
-  where
-    startId = 0
-    headInstruction =
-      [ Instruction (Nothing, OpCapability (capability h)),
-        Instruction (Just (Id (startId + 1)), OpExtInstImport (extension h)),
-        Instruction (Nothing, OpMemoryModel (addressModel h) (memoryModel h)),
-        Instruction (Nothing, OpEntryPoint (shaderType h) (IdName (entryPoint h)) (entryPoint h) (ShowList (map (\(name, _, _, _) -> IdName name) (uniforms h)))),
-        Instruction (Nothing, OpExecutionMode (IdName (entryPoint h)) (executionMode h)),
-        Instruction (Nothing, OpSource (fst (source h)) (snd (source h)))
-      ]
-
-    constInstruction = []
-    state =
-      State
-        { idCount = startId + 1,
-          idMap = Map.empty,
-          env = (entryPoint h, DTypeVoid),
-          decs = dec
-        }
-    (state1, _) = insertResult state (ResultCustom ("ext ")) (Just (ExprResult (Id 1, DTypeVoid))) -- ext
-    inst =
-      Instructions
-        { headerFields = [Instruction (Nothing, Comment "header fields")] ++ headInstruction,
-          nameFields = [Instruction (Nothing, Comment "Name fields")],
-          uniformsFields = [Instruction (Nothing, Comment "uniform fields")],
-          typeFields = [Instruction (Nothing, Comment "Type fields")],
-          constFields = [Instruction (Nothing, Comment "Const fields")],
-          functionFields = [[Instruction (Nothing, Comment "functions fields")]]
-        }
 
 generateNegOp :: State -> Variable -> (State, Variable, [Instruction])
 generateNegOp state v =
@@ -440,22 +400,22 @@ handleVarFunction state name (returnType, args) =
 handleVar :: State -> Ast.Type Range -> BS.ByteString -> (State, ExprReturn, Instructions, [Instruction])
 handleVar state t1 n =
   let dType = typeConvert t1
-      (state1, typeId, typeInst) = generateType state dType
-      (state3, var, insts, stackInst) = case dType of
+      -- (state1, typeId, typeInst) = generateType state dType
+      (state3, var, inst, stackInst) = case dType of
         DTypeFunction return args ->
           -- function variable
-          handleVarFunction state1 (BS.unpack n) (return, args)
+          handleVarFunction state (BS.unpack n) (return, args)
         _ ->
           -- value variable
-          let maybeResult = findResult state1 (ResultVariableValue (env state1, BS.unpack n, dType))
+          let maybeResult = findResult state (ResultVariableValue (env state, BS.unpack n, dType))
            in case maybeResult of
-                Just x -> (state1, x, emptyInstructions, [])
+                Just x -> (state, x, emptyInstructions, [])
                 Nothing ->
-                  let ExprResult (varId, varType) = fromMaybe (error ("can find var:" ++ show (env state1, BS.unpack n, dType))) (findResult state1 (ResultVariable (env state1, BS.unpack n, dType)))
-                      (state2, ExprResult (valueId, _)) = insertResult state1 (ResultVariableValue (env state1, BS.unpack n, dType)) Nothing
-                      inst = [Instruction (Just valueId, OpLoad typeId varId)]
+                  let ExprResult (varId, varType) = fromMaybe (error ("can find var:" ++ show (env state, BS.unpack n, dType))) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
+                      (state2, ExprResult (valueId, _)) = insertResult state (ResultVariableValue (env state, BS.unpack n, dType)) Nothing
+                      inst = [Instruction (Just valueId, OpLoad (searchTypeId state2 varType) varId)]
                    in (state2, ExprResult (valueId, varType), emptyInstructions, inst)
-   in (state3, var, insts +++ typeInst, stackInst)
+   in (state3, var, inst, stackInst)
 
 handleApp :: State -> Ast.Expr (Range, Ast.Type Range) -> Ast.Expr (Range, Ast.Type Range) -> (State, ExprReturn, Instructions, [Instruction])
 handleApp state e1 e2 =
@@ -554,13 +514,45 @@ handleBinOp state e1 op e2 =
       (state3, var3, inst3, stackInst3) = generateBinOp state2 var1 op var2
    in (state3, ExprResult var3, inst1 +++ inst2 +++ inst3, stackInst1 ++ stackInst2 ++ stackInst3)
 
-generateUniforms :: State -> [Ast.Argument (Range, Ast.Type Range)] -> (State, Instructions)
-generateUniforms state arg =
+generateInit :: Config -> [DecType] -> (State, Instructions)
+generateInit h dec =
+  (state1, inst)
+  where
+    startId = 0
+    headInstruction =
+      [ Instruction (Nothing, OpCapability (capability h)),
+        Instruction (Just (Id (startId + 1)), OpExtInstImport (extension h)),
+        Instruction (Nothing, OpMemoryModel (addressModel h) (memoryModel h)),
+        Instruction (Nothing, OpExecutionMode (IdName (entryPoint h)) (executionMode h)),
+        Instruction (Nothing, OpSource (fst (source h)) (snd (source h)))
+      ]
+
+    constInstruction = []
+    state =
+      State
+        { idCount = startId + 1,
+          idMap = Map.empty,
+          env = (entryPoint h, DTypeVoid),
+          decs = dec
+        }
+    (state1, _) = insertResult state (ResultCustom ("ext ")) (Just (ExprResult (Id 1, DTypeVoid))) -- ext
+    inst =
+      Instructions
+        { headerFields = Instruction (Nothing, Comment "header fields") : headInstruction,
+          nameFields = [Instruction (Nothing, Comment "Name fields")],
+          uniformsFields = [Instruction (Nothing, Comment "uniform fields")],
+          typeFields = [Instruction (Nothing, Comment "Type fields")],
+          constFields = [Instruction (Nothing, Comment "Const fields")],
+          functionFields = [[Instruction (Nothing, Comment "functions fields")]]
+        }
+
+generateUniforms :: State -> Config -> [Ast.Argument (Range, Ast.Type Range)] -> (State, Instructions)
+generateUniforms state config arg =
   let (_, uniforms) = foldl (\(i, acc) (Ast.Argument (_, t) (Ast.Name (_, _) name)) -> let acc' = acc ++ [(BS.unpack name, typeConvert t, Input, i)] in (i + 1, acc')) (0, []) arg
-      uniforms' = uniforms ++ [("outColor", vector4, Output, 0)] -- todo handle custom output
-      (state', inst') =
+      uniforms' = ("outColor", vector4, Output, 0) : uniforms -- todo handle custom output
+      (state', inst, ids) =
         foldl
-          ( \(s, i) (name, dType, storage, location) ->
+          ( \(s, i, accId) (name, dType, storage, location) ->
               let (s1, typeId, inst1) = generateType s (DTypePointer storage dType)
                   (s2, ExprResult (id, _)) = insertResult s1 (ResultVariable (env s1, name, dType)) Nothing
 
@@ -570,15 +562,21 @@ generateUniforms state arg =
 
                   updatedInst =
                     i
-                      { nameFields = nameFields i ++ nameInstruction,
-                        uniformsFields = uniformsFields i ++ uniformsInstruction,
-                        constFields = constFields i ++ variableInstruction
-                      }
-               in (s2, inst1 +++ updatedInst)
+                      +++ inst1
+                        { nameFields = nameFields inst1 ++ nameInstruction,
+                          uniformsFields = uniformsFields inst1 ++ uniformsInstruction,
+                          constFields = constFields inst1 ++ variableInstruction
+                        }
+               in (s2, updatedInst, accId ++ [id])
           )
-          (state, emptyInstructions)
+          (state, emptyInstructions, [])
           uniforms'
-   in (state', inst')
+      inst1 =
+        inst
+          { headerFields =
+              headerFields inst ++ [Instruction (Nothing, OpEntryPoint (shaderType config) (IdName (entryPoint config)) (entryPoint config) (ShowList ids))]
+          }
+   in (state', inst1)
 
 -- error (show (env state') ++ show uniforms')
 
@@ -629,17 +627,17 @@ generateFunction (state, inst) (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
    in -- (state'''', ExprResult var, typeInst, inst') = generateExpr state''' e
       (state6, funcId, inst4)
 
-generateMainFunction :: (State, Instructions) -> [Uniform] -> DecType -> (State, Instructions)
-generateMainFunction (state, inst) uniforms (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
+generateMainFunction :: (State, Instructions) -> Config -> DecType -> (State, Instructions)
+generateMainFunction (state, inst) config (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
   let (returnType, argsType) = (DTypeVoid, [])
       functionType = DTypeFunction returnType argsType
       (state1, typeId, inst1) = generateType state functionType
       (state2, ExprResult (funcId, _)) = insertResult state1 (ResultCustom "func ") (Just (ExprResult (IdName (BS.unpack name), functionType)))
 
       state3 = state2 {idCount = idCount state2 + 1, env = (BS.unpack name, functionType)}
-      labelId = Id (idCount state2)
+      labelId = Id (idCount state3)
 
-      (state4, inst2) = generateUniforms state3 args
+      (state4, inst2) = generateUniforms state3 config args
       (state5, ExprResult (resultId, _), inst3, exprInst) = generateExpr state4 e
       returnTypeId = searchTypeId state5 returnType
 
@@ -689,6 +687,7 @@ generate config decs =
   let init = generateInit config decs
       (initState, inst) = init
       mainDec = findDec decs (entryPoint config) Nothing
-      (state', inst') = generateMainFunction (initState, inst) (uniforms config) (fromMaybe (error "") mainDec)
+      (state', inst') = generateMainFunction (initState, inst) config (fromMaybe (error "") mainDec)
+      -- (state3, _, inst2) = generateType initState (DTypePointer Input vector2)
       finalInst = inst'
    in finalInst
