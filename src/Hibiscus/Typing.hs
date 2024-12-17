@@ -13,7 +13,8 @@ data DataType
   = DTypeUnknown
   | DTypeVoid
   | DTypeBool
-  | DTypeInt Int Int
+  | DTypeInt Int
+  | DTypeUInt Int
   | DTypeFloat Int -- size
   | DTypeVector Int DataType -- size, type
   | DTypeMatrix Int DataType -- col size, col type
@@ -27,11 +28,8 @@ instance Show DataType where
   show DTypeUnknown = "unknown"
   show DTypeVoid = "void"
   show DTypeBool = "bool"
-  show (DTypeInt size sign) =
-    case sign of
-      0 -> "ui" ++ show size
-      1 -> "i" ++ show size
-      _ -> error "Invalid sign"
+  show (DTypeInt size) = "i" ++ show size
+  show (DTypeUInt size) = "ui" ++ show size
   show (DTypeFloat size) = "f" ++ show size
   show (DTypeVector size baseType) = "v" ++ show size ++ show baseType
   show (DTypeMatrix col baseType) = "mat" ++ show col ++ show baseType
@@ -44,10 +42,10 @@ bool :: DataType
 bool = DTypeBool
 
 uint32 :: DataType
-uint32 = DTypeInt 32 0
+uint32 = DTypeUInt 32
 
 int32 :: DataType
-int32 = DTypeInt 32 1
+int32 = DTypeInt 32
 
 float32 :: DataType
 float32 = DTypeFloat 32

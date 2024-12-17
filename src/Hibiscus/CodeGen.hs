@@ -182,7 +182,8 @@ generateType state dType =
             DTypeUnknown -> error "Unknown type"
             DTypeVoid -> (state, emptyInstructions)
             DTypeBool -> (state, emptyInstructions)
-            DTypeInt _ _ -> (state, emptyInstructions)
+            DTypeInt _ -> (state, emptyInstructions)
+            DTypeUInt _ -> (state, emptyInstructions)
             DTypeFloat _ -> (state, emptyInstructions)
             DTypeVector _ baseType -> let (s', id, inst') = generateType state baseType in (s', inst')
             DTypeMatrix _ baseType -> let (s', id, inst') = generateType state baseType in (s', inst')
@@ -197,7 +198,8 @@ generateType state dType =
             DTypeUnknown -> error "Unknown type"
             DTypeVoid -> (state2, emptyInstructions {typeFields = [Instruction (Just typeId, OpTypeVoid)]})
             DTypeBool -> (state2, emptyInstructions {typeFields = [Instruction (Just typeId, OpTypeBool)]})
-            DTypeInt size sign -> (state2, emptyInstructions {typeFields = [Instruction (Just typeId, OpTypeInt size sign)]})
+            DTypeInt size -> (state2, emptyInstructions {typeFields = [Instruction (Just typeId, OpTypeInt size 0)]})
+            DTypeUInt size -> (state2, emptyInstructions {typeFields = [Instruction (Just typeId, OpTypeInt size 1)]})
             DTypeFloat size -> (state2, emptyInstructions {typeFields = [Instruction (Just typeId, OpTypeFloat size)]})
             DTypeVector size baseType -> (state2, emptyInstructions {typeFields = [Instruction (Just typeId, OpTypeVector (searchTypeId' baseType) size)]})
             DTypeMatrix col baseType -> (state2, emptyInstructions {typeFields = [Instruction (Just typeId, OpTypeMatrix (searchTypeId' baseType) col)]})
@@ -231,8 +233,8 @@ generateConst :: State -> Literal -> (State, OpId, Instructions)
 generateConst state v =
   let dtype = case v of
         LBool _ -> DTypeBool
-        LUint _ -> DTypeInt 32 0
-        LInt _ -> DTypeInt 32 1
+        LUint _ -> DTypeUInt 32
+        LInt _ -> DTypeInt 32
         LFloat _ -> DTypeFloat 32
       (state', typeId, typeInst) = generateType state dtype
       (state'', ExprResult (constId, dType)) = insertResult state' (ResultConstant v) Nothing
@@ -250,12 +252,14 @@ generateNegOp state v =
           }
       inst =
         case t of
-          bool ->
-            [Instruction (Just id, OpLogicalNot typeId e)]
-          int32 ->
-            [Instruction (Just id, OpSNegate typeId e)]
-          float32 ->
-            [Instruction (Just id, OpFNegate typeId e)]
+          t
+            | t == bool ->
+                [Instruction (Just id, OpLogicalNot typeId e)]
+            | t == int32 ->
+                [Instruction (Just id, OpSNegate typeId e)]
+            | t == float32 ->
+                [Instruction (Just id, OpFNegate typeId e)]
+          _ -> error ("not support neg of " ++ show t)
       result = (id, t)
    in (state', result, inst)
 
@@ -270,57 +274,52 @@ generateBinOp state v1 op v2 =
       id = Id (idCount state')
       (resultType, instruction) =
         case (t1, t2) of
-          (t1, t2) | t1 == bool && t2 == bool ->
-            case op of
-              Ast.Eq _ -> (bool, Instruction (Just id, OpLogicalEqual typeId1 e1 e2))
-              Ast.Neq _ -> (bool, Instruction (Just id, OpLogicalNotEqual typeId1 e1 e2))
-              Ast.And _ -> (bool, Instruction (Just id, OpLogicalAnd typeId1 e1 e2))
-              Ast.Or _ -> (bool, Instruction (Just id, OpLogicalOr typeId1 e1 e2))
-              _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
-          (t1, t2) | t1 == int32 && t2 == int32 ->
-            case op of
-              Ast.Plus _ -> (int32, Instruction (Just id, OpIAdd typeId1 e1 e2))
-              Ast.Minus _ -> (int32, Instruction (Just id, OpISub typeId1 e1 e2))
-              Ast.Times _ -> (int32, Instruction (Just id, OpIMul typeId1 e1 e2))
-              Ast.Divide _ -> (int32, Instruction (Just id, OpSDiv typeId1 e1 e2))
-              Ast.Eq _ -> (bool, Instruction (Just id, OpIEqual typeId1 e1 e2))
-              Ast.Neq _ -> (bool, Instruction (Just id, OpINotEqual typeId1 e1 e2))
-              Ast.Lt _ -> (bool, Instruction (Just id, OpSLessThan typeId1 e1 e2))
-              Ast.Le _ -> (bool, Instruction (Just id, OpSLessThanEqual typeId1 e1 e2))
-              Ast.Gt _ -> (bool, Instruction (Just id, OpSGreaterThan typeId1 e1 e2))
-              Ast.Ge _ -> (bool, Instruction (Just id, OpSGreaterThanEqual typeId1 e1 e2))
-              _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
-          (t1, t2) | t1 == int32 && t2 == float32 -> error "Not implemented"
-          (t1, t2) | t1 == float32 && t2 == int32 -> error "Not implemented"
-          (t1, t2) | t1 == float32 && t2 == float32 ->
-            case op of
-              Ast.Plus _ -> (float32, Instruction (Just id, OpFAdd typeId1 e1 e2))
-              Ast.Minus _ -> (float32, Instruction (Just id, OpFSub typeId1 e1 e2))
-              Ast.Times _ -> (float32, Instruction (Just id, OpFMul typeId1 e1 e2))
-              Ast.Divide _ -> (float32, Instruction (Just id, OpFDiv typeId1 e1 e2))
-              Ast.Eq _ -> (bool, Instruction (Just id, OpFOrdEqual typeId1 e1 e2))
-              Ast.Neq _ -> (bool, Instruction (Just id, OpFOrdNotEqual typeId1 e1 e2))
-              Ast.Lt _ -> (bool, Instruction (Just id, OpFOrdLessThan typeId1 e1 e2))
-              Ast.Le _ -> (bool, Instruction (Just id, OpFOrdLessThanEqual typeId1 e1 e2))
-              Ast.Gt _ -> (bool, Instruction (Just id, OpFOrdGreaterThan typeId1 e1 e2))
-              Ast.Ge _ -> (bool, Instruction (Just id, OpFOrdGreaterThanEqual typeId1 e1 e2))
-          (t1, t2) | t1 == t2 && (t1 == vector2 || t1 == vector3 || t1 == vector4) ->
-            case op of
-              Ast.Plus _ -> (t1, Instruction (Just id, OpFAdd typeId1 e1 e2))
-              Ast.Minus _ -> (t1, Instruction (Just id, OpFSub typeId1 e1 e2))
-              Ast.Times _ -> (t1, Instruction (Just id, OpFMul typeId1 e1 e2))
-          (t1, t2) | (t1 == vector2 || t1 == vector3 || t1 == vector4) && (t2 == int32 || t2 == float32) ->
-            case op of
-              Ast.Times _ -> (vector2, Instruction (Just id, OpVectorTimesScalar typeId1 e1 e2))
-              _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
-          (t1, t2) | (t1 == int32 || t1 == float32) && (t2 == vector2 || t2 == vector3 || t2 == vector4) ->
-            case op of
-              Ast.Times _ -> (vector2, Instruction (Just id, OpVectorTimesScalar typeId1 e1 e2))
-              _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
+          (t1, t2)
+            | t1 == bool && t2 == bool ->
+                case op of
+                  Ast.Eq _ -> (bool, Instruction (Just id, OpLogicalEqual typeId1 e1 e2))
+                  Ast.Neq _ -> (bool, Instruction (Just id, OpLogicalNotEqual typeId1 e1 e2))
+                  Ast.And _ -> (bool, Instruction (Just id, OpLogicalAnd typeId1 e1 e2))
+                  Ast.Or _ -> (bool, Instruction (Just id, OpLogicalOr typeId1 e1 e2))
+            | t1 == int32 && t2 == int32 ->
+                case op of
+                  Ast.Plus _ -> (int32, Instruction (Just id, OpIAdd typeId1 e1 e2))
+                  Ast.Minus _ -> (int32, Instruction (Just id, OpISub typeId1 e1 e2))
+                  Ast.Times _ -> (int32, Instruction (Just id, OpIMul typeId1 e1 e2))
+                  Ast.Divide _ -> (int32, Instruction (Just id, OpSDiv typeId1 e1 e2))
+                  Ast.Eq _ -> (bool, Instruction (Just id, OpIEqual typeId1 e1 e2))
+                  Ast.Neq _ -> (bool, Instruction (Just id, OpINotEqual typeId1 e1 e2))
+                  Ast.Lt _ -> (bool, Instruction (Just id, OpSLessThan typeId1 e1 e2))
+                  Ast.Le _ -> (bool, Instruction (Just id, OpSLessThanEqual typeId1 e1 e2))
+                  Ast.Gt _ -> (bool, Instruction (Just id, OpSGreaterThan typeId1 e1 e2))
+                  Ast.Ge _ -> (bool, Instruction (Just id, OpSGreaterThanEqual typeId1 e1 e2))
+            | t1 == int32 && t2 == float32 -> error "Not implemented"
+            | t1 == float32 && t2 == int32 -> error "Not implemented"
+            | t1 == float32 && t2 == float32 ->
+                case op of
+                  Ast.Plus _ -> (float32, Instruction (Just id, OpFAdd typeId1 e1 e2))
+                  Ast.Minus _ -> (float32, Instruction (Just id, OpFSub typeId1 e1 e2))
+                  Ast.Times _ -> (float32, Instruction (Just id, OpFMul typeId1 e1 e2))
+                  Ast.Divide _ -> (float32, Instruction (Just id, OpFDiv typeId1 e1 e2))
+                  Ast.Eq _ -> (bool, Instruction (Just id, OpFOrdEqual typeId1 e1 e2))
+                  Ast.Neq _ -> (bool, Instruction (Just id, OpFOrdNotEqual typeId1 e1 e2))
+                  Ast.Lt _ -> (bool, Instruction (Just id, OpFOrdLessThan typeId1 e1 e2))
+                  Ast.Le _ -> (bool, Instruction (Just id, OpFOrdLessThanEqual typeId1 e1 e2))
+                  Ast.Gt _ -> (bool, Instruction (Just id, OpFOrdGreaterThan typeId1 e1 e2))
+                  Ast.Ge _ -> (bool, Instruction (Just id, OpFOrdGreaterThanEqual typeId1 e1 e2))
+            | t1 == t2 && (t1 == vector2 || t1 == vector3 || t1 == vector4) ->
+                case op of
+                  Ast.Plus _ -> (t1, Instruction (Just id, OpFAdd typeId1 e1 e2))
+                  Ast.Minus _ -> (t1, Instruction (Just id, OpFSub typeId1 e1 e2))
+                  Ast.Times _ -> (t1, Instruction (Just id, OpFMul typeId1 e1 e2))
+            | (t1 == vector2 || t1 == vector3 || t1 == vector4) && (t2 == int32 || t2 == float32) ->
+                case op of
+                  Ast.Times _ -> (vector2, Instruction (Just id, OpVectorTimesScalar typeId1 e1 e2))
+            | (t1 == int32 || t1 == float32) && (t2 == vector2 || t2 == vector3 || t2 == vector4) ->
+                case op of
+                  Ast.Times _ -> (vector2, Instruction (Just id, OpVectorTimesScalar typeId1 e1 e2))
           _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
-      inst = [instruction]
-      result = (id, resultType)
-   in (state', result, emptyInstructions, inst)
+   in (state', (id, resultType), emptyInstructions, [instruction])
 
 generateExpr :: State -> Ast.Expr (Range, Ast.Type Range) -> (State, ExprReturn, Instructions, [Instruction])
 generateExpr state expr =
@@ -338,7 +337,7 @@ generateExpr state expr =
     Ast.ENeg _ e -> handleNeg state e
     Ast.EBinOp _ e1 op e2 -> handleBinOp state e1 op e2
     Ast.EOp _ _ -> handleOp state expr
-    Ast.ELetIn _ _ _ -> error "LetIn"
+    Ast.ELetIn {} -> error "LetIn"
 
 handleConst :: State -> Literal -> DataType -> (State, ExprReturn, Instructions, [Instruction])
 handleConst state lit dType =
@@ -379,7 +378,7 @@ handleVarFunction state name (returnType, args) =
         Nothing ->
           case (typeStringConvert name, returnType, args) of
             (Just x, return, args)
-              | (x == return) -> (state, ExprApplication (TypeConstructor return) (return, args) [], emptyInstructions, [])
+              | x == return -> (state, ExprApplication (TypeConstructor return) (return, args) [], emptyInstructions, [])
             (Nothing, return, args)
               | name == "foldl" -> (state, ExprApplication FunctionFoldl (return, args) [], emptyInstructions, [])
               | name == "map" -> (state, ExprApplication FunctionMap (return, args) [], emptyInstructions, [])
