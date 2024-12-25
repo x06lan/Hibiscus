@@ -14,7 +14,7 @@ library:
   - Hibiscus.Ast
   - Hibiscus.Lexer
   - Hibiscus.Parser
-  - Hibiscus.Type2
+  - Hibiscus.Type4plus
   dependencies:
   - array
   - base

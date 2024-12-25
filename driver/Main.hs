@@ -1,9 +1,10 @@
 module Main where
 
 import qualified Data.ByteString.Lazy.Char8 as BS
+import Data.Functor (void)
 import Hibiscus.Lexer (runAlex)
 import Hibiscus.Parser (parseHibiscus)
-import Hibiscus.Type2 (typeInfer)
+import Hibiscus.Type4plus (infer)
 import System.Environment (getArgs)
 import Control.Monad (when)
 
@@ -20,8 +21,8 @@ main = do
     Right parseResult -> do
       print parseResult
       putStrLn "\n----- Type Check Result ---------------"
-      case typeInfer parseResult of
-        Right (_, decs) -> mapM_ print decs
+      case infer (fmap void parseResult) of
+        Right result -> print result
         Left err -> print err
 
       -- case typeInfer parseResult of

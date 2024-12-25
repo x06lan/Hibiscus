@@ -18,9 +18,9 @@ library
       Hibiscus.Ast
       Hibiscus.Lexer
       Hibiscus.Parser
-      Hibiscus.Type2
-  other-modules:
       Hibiscus.Type4plus
+  other-modules:
+      Hibiscus.Type2
       Paths_hibiscus
   hs-source-dirs:
       src
