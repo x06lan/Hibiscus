@@ -2,7 +2,7 @@ module Main where
 
 import System.Exit
 
-import Hibiscus.Type2 (typeInfer)
+import Hibiscus.Type4plus (infer)
 import Hibiscus.Ast
 
 -- testAst from:
@@ -22,7 +22,7 @@ testAst = [
     ]
 
 main :: IO ()
-main =
-    case typeInfer testAst of
-        Right (_, es) -> mapM_ print es
-        Left err -> die err
+main = do
+  case infer testAst of
+    Left err -> putStrLn $ "Error: " ++ err
+    Right result -> putStrLn $ "Inferred expression: " ++ show result

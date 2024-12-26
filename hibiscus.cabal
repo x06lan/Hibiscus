@@ -18,12 +18,12 @@ library
       Hibiscus.Ast
       Hibiscus.Lexer
       Hibiscus.Parser
-      Hibiscus.Type
+      Hibiscus.Typing
       Hibiscus.CodeGen
       Hibiscus.Asm
-      Hibiscus.Type2
+      Hibiscus.Type4plus
   other-modules:
-      Hibiscus.Typing
+      Hibiscus.Type2
       Paths_hibiscus
   hs-source-dirs:
       src
@@ -59,7 +59,7 @@ test-suite type-infer
   main-is: typeinfer.hs
   other-modules:
       Hibiscus.Ast
-      Hibiscus.Type
+      Hibiscus.Type4plus
   hs-source-dirs:
       test
       src

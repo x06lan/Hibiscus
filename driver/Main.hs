@@ -2,10 +2,11 @@ module Main where
 
 import Control.Monad (when)
 import qualified Data.ByteString.Lazy.Char8 as BS
+import Data.Functor (void)
 import Hibiscus.CodeGen (defaultConfig, generate, instructionsToString)
 import Hibiscus.Lexer (runAlex)
 import Hibiscus.Parser (parseHibiscus)
-import Hibiscus.Type2 (typeInfer)
+import Hibiscus.Type4plus (infer)
 import System.Environment (getArgs)
 
 main :: IO ()
@@ -21,15 +22,28 @@ main = do
     Right parseResult -> do
       -- print parseResult
       putStrLn "\n----- Type Check Result ---------------"
-      case typeInfer parseResult of
-        Left err -> putStrLn $ "Check Error: " ++ err
-        Right (env, de) -> do
-          -- print env
-          -- mapM_ print de
-          -- print de
-          let code = generate defaultConfig de
-          print de
-          -- print env
-          -- putStrLn (instructionsToString code)
+      case infer parseResult of
+        Left err -> print err
+        Right dec -> do
+          let code = generate defaultConfig dec
           putStrLn $ show code
           writeFile (inputFilePath ++ ".asm") (instructionsToString code)
+
+-- case typeInfer parseResult of
+--   Left err -> putStrLn $ "Check Error: " ++ err
+--   Right (env, de) -> do
+--     -- print env
+--     -- mapM_ print de
+--     -- print de
+--     let code = generate defaultConfig de
+--     print de
+--     -- print env
+--     -- putStrLn (instructionsToString code)
+--     putStrLn $ show code
+--     writeFile (inputFilePath ++ ".asm") (instructionsToString code)
+
+-- case typeInfer parseResult of
+--   Left err -> putStrLn $ "Check Error: " ++ err
+--   Right (env, de) -> do
+--     print env
+--     mapM_ print de

@@ -14,10 +14,11 @@ library:
     - Hibiscus.Ast
     - Hibiscus.Lexer
     - Hibiscus.Parser
-    - Hibiscus.Type
+    - Hibiscus.Typing
     - Hibiscus.CodeGen
     - Hibiscus.Asm
-    - Hibiscus.Type2
+    # - Hibiscus.Type2
+    - Hibiscus.Type4plus
   dependencies:
     - array
     - base
@@ -44,7 +45,7 @@ tests:
       - src
     other-modules:
       - Hibiscus.Ast
-      - Hibiscus.Type
+      - Hibiscus.Type4plus
     dependencies:
       - base
       - bytestring

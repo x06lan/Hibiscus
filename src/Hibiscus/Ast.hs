@@ -7,13 +7,15 @@ import Data.ByteString.Lazy.Char8 (ByteString, unpack)
 
 data Name a
   = Name a ByteString
-  deriving (Functor, Foldable)
+  deriving (Functor, Foldable, Ord)
 
 instance Eq (Name a) where
   (Name _ s1) == (Name _ s2) = s1 == s2
 
 instance Show (Name a) where
   show (Name _ b) = "Name " ++ show b
+
+type MetaSymbol = Int
 
 data Type a
   = TVar a (Name a)
@@ -22,8 +24,8 @@ data Type a
   | TUnit a
   | TList a (Type a)
   | TArrow a (Type a) (Type a)
-  | TUnknown a Int
-  deriving (Foldable, Functor)
+  | TUnknown a MetaSymbol
+  deriving (Functor, Foldable)
 
 instance Eq (Type a) where
   (TVar _ n1) == (TVar _ n2) = n1 == n2

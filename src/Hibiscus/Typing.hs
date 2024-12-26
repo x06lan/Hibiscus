@@ -59,10 +59,10 @@ vector3 = DTypeVector 3 float32
 vector4 :: DataType
 vector4 = DTypeVector 4 float32
 
-typeFunctionConvert :: Ast.Type Range -> DataType
+typeFunctionConvert :: Ast.Type ()-> DataType
 typeFunctionConvert t = case t of
   Ast.TArrow _ t1 t2 ->
-    let processArrow :: Ast.Type Range -> ([DataType], DataType)
+    let processArrow :: Ast.Type () -> ([DataType], DataType)
         processArrow (Ast.TArrow _ t1' t2') =
           let (args, ret) = processArrow t2'
            in (typeConvert t1' : args, ret)
@@ -72,7 +72,7 @@ typeFunctionConvert t = case t of
      in DTypeFunction returnType argTypes
   _ -> error ("Not a function type" ++ show t)
 
-typeConvert :: Ast.Type Range -> DataType
+typeConvert :: Ast.Type () -> DataType
 typeConvert t = case t of
   Ast.TVar _ (Ast.Name _ n) -> case typeStringConvert (BS.unpack n) of
     Just x -> x
