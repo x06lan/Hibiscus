@@ -99,7 +99,8 @@ emptyHeaderFields =
 
 fromHeaderFields :: HeaderFields -> [Instruction]
 fromHeaderFields hf =
-  [ fromJust (capabilityInst hf)
+  [ Instruction (Nothing, Comment "header fields")
+  , fromJust (capabilityInst hf)
   , fromJust (extensionInst hf)
   , fromJust (memoryModelInst hf)
   , fromJust (entryPointInst hf)
