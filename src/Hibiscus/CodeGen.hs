@@ -239,6 +239,7 @@ generateType state dType =
             DTypeMatrix _ baseType -> let (s', id, inst') = generateType state baseType in (s', inst')
             DTypeArray _ baseType -> let (s', id, inst') = generateType state baseType in (s', inst')
             DTypePointer _ baseType -> let (s', id, inst') = generateType state baseType in (s', inst')
+            -- FIXME: unsure what to modify here
             DTypeStruct _ fields -> foldl (\(s, inst') field -> let (s', id, inst'') = generateType s field in (s', inst' +++ inst'')) (state, emptyInstructions) fields
             DTypeFunction returnType argsType -> foldl (\(s, inst') t -> let (s', id, inst'') = generateType s (DTypePointer Function t) in (s', inst' +++ inst'')) (state, emptyInstructions) (returnType : argsType)
           (state2, ExprResult (typeId, _)) = insertResult state1 (ResultDataType dType) Nothing
@@ -397,7 +398,14 @@ handleConst state lit dType =
 handleArray :: State -> [Ast.Expr (Range, Ast.Type Range)] -> (State, ExprReturn, Instructions, [Instruction])
 handleArray state l =
   let len = length l
-      (state1, results, inst, stackInst) = foldl (\(s, acc, acc1, acc2) e -> let (s', r, i, si) = generateExpr s e in (s', acc ++ [r], acc1 +++ i, acc2 ++ si)) (state, [], emptyInstructions, []) l
+      (state1, results, inst, stackInst) =
+        -- FIXME: unsure what to modify here
+        foldl
+          ( \(s, acc, acc1, acc2) e ->
+              let (s', r, i, si) = generateExpr s e in (s', acc ++ [r], acc1 +++ i, acc2 ++ si)
+          )
+          (state, [], emptyInstructions, [])
+          l
       -- (state2, typeId, typeInst) = generateType state1 (DTypeArray len baseTypeId)
 
       (state2, typeId, typeInst) = generateType state1 (DTypeArray len DTypeUnknown)
@@ -507,18 +515,30 @@ handleExtract state returnType i var =
 applyFunction :: State -> OpId -> DataType -> [Variable] -> (State, ExprReturn, Instructions, [Instruction])
 applyFunction state id returnType args =
   do
-    let (state1, typeIds, inst1) = foldl (\(s, acc, acc1) t -> let (s', id, inst) = generateType s t in (s', acc ++ [id], acc1 +++ inst)) (state, [], emptyInstructions) (map (DTypePointer Function . snd) args)
+    let (state1, typeIds, inst1) =
+          foldr
+            ( ( \t (s, acc, acc1) ->
+                  let (s', id, inst) = generateType s t in (s', id : acc, inst +++ acc1)
+              )
+                . DTypePointer Function
+                . snd
+            )
+            (state, [], emptyInstructions)
+            args
     let (ids, vars, stackInst) =
+          -- FIXME: unsure what to modify here
           foldl
             ( \(id, vars, acc) (typeId, t) ->
-                let varId = IdName ("param_" ++ show id)
-                 in ( id + 1
-                    , vars ++ [(varId, t)]
-                    , acc
-                        ++ [ Instruction (Just varId, OpVariable typeId Function)
-                           , Instruction (Nothing, OpStore varId (fst t))
-                           ]
-                    )
+                let
+                  varId = IdName ("param_" ++ show id)
+                 in
+                  ( id + 1
+                  , vars ++ [(varId, t)]
+                  , acc
+                      ++ [ Instruction (Just varId, OpVariable typeId Function)
+                         , Instruction (Nothing, OpStore varId (fst t))
+                         ]
+                  )
             )
             (idCount state1 + 1, [], [])
             (zip typeIds args)
@@ -602,14 +622,39 @@ generateUniforms :: State -> Config -> [Ast.Argument (Range, Ast.Type Range)] ->
 generateUniforms state config arg =
   do
     let (_, uniforms) =
-          foldl
-            ( \(i, acc) (Ast.Argument (_, t) (Ast.Name _ name)) ->
-                let acc' = acc ++ [(BS.unpack name, typeConvert t, Input, i)] in (i + 1, acc')
+          foldr
+            ( \(Ast.Argument (_, t) (Ast.Name _ name)) (i, acc) ->
+                let
+                  acc' = (BS.unpack name, typeConvert t, Input, i) : acc
+                 in
+                  (i + 1, acc')
             )
             (0, [])
             arg
     let uniforms' = ("outColor", vector4, Output, 0) : uniforms -- todo handle custom output
     let (state', inst, ids) =
+          -- FIXME: unsure what to modify here
+          --
+          -- foldr
+          --   ( \(name, dType, storage, location) (s, i, accId) ->
+          --       do
+          --         let (s1, typeId, inst1) = generateType s (DTypePointer storage dType)
+          --         let (s2, ExprResult (id, _)) = insertResult s1 (ResultVariable (env s1, name, dType)) Nothing
+
+          --         let variableInstruction = Instruction (Just id, OpVariable typeId storage)
+          --         let nameInstruction = Instruction (Nothing, OpName id name)
+          --         let uniformsInstruction = Instruction (Nothing, OpDecorate id (Location location))
+
+          --         let inst1' =
+          --               inst1
+          --                 { nameFields = nameInstruction : nameFields inst1
+          --                 , uniformsFields = uniformsInstruction : uniformsFields inst1
+          --                 , constFields = variableInstruction : constFields inst1
+          --                 }
+          --         let updatedInst = inst1' +++ i
+
+          --         (s2, updatedInst, id : accId)
+          --   )
           foldl
             ( \(s, i, accId) (name, dType, storage, location) ->
                 do
@@ -641,18 +686,25 @@ generateUniforms state config arg =
 
 generateFunctionParam :: State -> [Ast.Argument (Range, Ast.Type Range)] -> (State, Instructions, [Instruction])
 generateFunctionParam state arg =
-  let vars = foldl (\acc (Ast.Argument (_, t) (Ast.Name (_, _) name)) -> acc ++ [(BS.unpack name, typeConvert t)]) [] arg
-      (state', inst, stackInst) =
-        foldl
-          ( \(s, i, stackInst) (name, dType) ->
-              let (s', typeId, inst1) = generateType s (DTypePointer Function dType)
-                  (s'', ExprResult (id, _)) = insertResult s' (ResultVariable (env s', name, dType)) Nothing
-                  paramInst = [Instruction (Just id, OpFunctionParameter typeId)]
-               in (s'', i +++ inst1, stackInst ++ paramInst)
-          )
-          (state, emptyInstructions, [])
-          vars
-   in (state', inst, stackInst)
+  do
+    let vars =
+          foldr
+            ( \(Ast.Argument (_, t) (Ast.Name (_, _) name)) acc ->
+                (BS.unpack name, typeConvert t) : acc
+            )
+            []
+            arg
+    let (state', inst, stackInst) =
+          foldr
+            ( \(name, dType) (s, i, stackInst) ->
+                let (s', typeId, inst1) = generateType s (DTypePointer Function dType)
+                    (s'', ExprResult (id, _)) = insertResult s' (ResultVariable (env s', name, dType)) Nothing
+                    paramInst = Instruction (Just id, OpFunctionParameter typeId)
+                 in (s'', inst1 +++ i, paramInst : stackInst)
+            )
+            (state, emptyInstructions, [])
+            vars
+    (state', inst, stackInst)
 
 -- error (show (env state') ++ show vars)
 
