@@ -163,7 +163,7 @@ generateEntry state key =
            in (Map.insert key result currentMap, result, currentCount + 1)
         ResultFunction s (return, args) ->
           let t = DTypeFunction return args
-              var = (IdName (intercalate "_" (s : (map show args))), t)
+              var = (IdName (intercalate "_" (s : map show args)), t)
               result = ExprResult var
            in (Map.insert key result currentMap, result, currentCount)
 
@@ -245,7 +245,7 @@ generateConst state v =
 
 generateNegOp :: State -> Variable -> (State, Variable, [Instruction])
 generateNegOp state v =
-  let id = Id ((idCount state) + 1)
+  let id = Id (idCount state + 1)
       (e, t, typeId) = (fst v, snd v, searchTypeId state (snd v))
       state' =
         state
@@ -457,27 +457,28 @@ handleExtract state returnType i var =
 
 applyFunction :: State -> OpId -> DataType -> [Variable] -> (State, ExprReturn, Instructions, [Instruction])
 applyFunction state id returnType args =
-  let (state1, typeIds, inst1) = foldl (\(s, acc, acc1) t -> let (s', id, inst) = generateType s t in (s', acc ++ [id], acc1 +++ inst)) (state, [], emptyInstructions) (map (DTypePointer Function . snd) args)
-      (ids, vars, stackInst) =
-        foldl
-          ( \(id, vars, acc) (typeId, t) ->
-              let varId = IdName ("param_" ++ show id)
-               in ( id + 1
-                  , vars ++ [(varId, t)]
-                  , acc
-                      ++ [ Instruction (Just varId, OpVariable typeId Function)
-                         , Instruction (Nothing, OpStore varId (fst t))
-                         ]
-                  )
-          )
-          (idCount state1 + 1, [], [])
-          (zip typeIds args)
-      state2 = state1{idCount = ids}
-      resultId = Id (idCount state2)
-      stackInst' = stackInst ++ [Instruction (Just resultId, OpFunctionCall (searchTypeId state returnType) id (ShowList (map fst vars)))]
-   in -- (state', vars, typeInst, inst') = foldl (\(s, v, t, i) arg -> let (s', v', t', i') = functionPointer s arg in (s', v' : v, t ++ t', i ++ i')) (state, [], [], []) args
-      -- state' = state {idCount = idCount state + 1}
-      (state2, ExprResult (resultId, returnType), inst1, stackInst')
+  do
+    let (state1, typeIds, inst1) = foldl (\(s, acc, acc1) t -> let (s', id, inst) = generateType s t in (s', acc ++ [id], acc1 +++ inst)) (state, [], emptyInstructions) (map (DTypePointer Function . snd) args)
+    let (ids, vars, stackInst) =
+          foldl
+            ( \(id, vars, acc) (typeId, t) ->
+                let varId = IdName ("param_" ++ show id)
+                 in ( id + 1
+                    , vars ++ [(varId, t)]
+                    , acc
+                        ++ [ Instruction (Just varId, OpVariable typeId Function)
+                           , Instruction (Nothing, OpStore varId (fst t))
+                           ]
+                    )
+            )
+            (idCount state1 + 1, [], [])
+            (zip typeIds args)
+    let state2 = state1{idCount = ids}
+    let resultId = Id (idCount state2)
+    let stackInst' = stackInst ++ [Instruction (Just resultId, OpFunctionCall (searchTypeId state returnType) id (ShowList (map fst vars)))]
+    -- (state', vars, typeInst, inst') = foldl (\(s, v, t, i) arg -> let (s', v', t', i') = functionPointer s arg in (s', v' : v, t ++ t', i ++ i')) (state, [], [], []) args
+    -- state' = state {idCount = idCount state + 1}
+    (state2, ExprResult (resultId, returnType), inst1, stackInst')
 
 handleIfThenElse :: State -> Ast.Expr (Range, Ast.Type Range) -> Ast.Expr (Range, Ast.Type Range) -> Ast.Expr (Range, Ast.Type Range) -> (State, ExprReturn, Instructions, [Instruction])
 handleIfThenElse state e1 e2 e3 =
@@ -516,67 +517,76 @@ handleBinOp state e1 op e2 =
 
 generateInit :: Config -> [DecType] -> (State, Instructions)
 generateInit h dec =
-  (state1, inst)
- where
-  startId = 0
-  headInstruction =
-    [ Instruction (Nothing, OpCapability (capability h))
-    , Instruction (Just (Id (startId + 1)), OpExtInstImport (extension h))
-    , Instruction (Nothing, OpMemoryModel (addressModel h) (memoryModel h))
-    , Instruction (Nothing, OpExecutionMode (IdName (entryPoint h)) (executionMode h))
-    , Instruction (Nothing, OpSource (fst (source h)) (snd (source h)))
-    ]
+  do
+    let startId = 0
+    let headInstruction =
+          [ Instruction (Nothing, OpCapability (capability h))
+          , Instruction (Just (Id (startId + 1)), OpExtInstImport (extension h))
+          , Instruction (Nothing, OpMemoryModel (addressModel h) (memoryModel h))
+          , Instruction (Nothing, OpExecutionMode (IdName (entryPoint h)) (executionMode h))
+          , Instruction (Nothing, uncurry OpSource (source h))
+          ]
 
-  constInstruction = []
-  state =
-    State
-      { idCount = startId + 1
-      , idMap = Map.empty
-      , env = (entryPoint h, DTypeVoid)
-      , decs = dec
-      }
-  (state1, _) = insertResult state (ResultCustom ("ext ")) (Just (ExprResult (Id 1, DTypeVoid))) -- ext
-  inst =
-    Instructions
-      { headerFields = Instruction (Nothing, Comment "header fields") : headInstruction
-      , nameFields = [Instruction (Nothing, Comment "Name fields")]
-      , uniformsFields = [Instruction (Nothing, Comment "uniform fields")]
-      , typeFields = [Instruction (Nothing, Comment "Type fields")]
-      , constFields = [Instruction (Nothing, Comment "Const fields")]
-      , functionFields = [[Instruction (Nothing, Comment "functions fields")]]
-      }
+    -- let constInstruction = []
+    let state =
+          State
+            { idCount = startId + 1
+            , idMap = Map.empty
+            , env = (entryPoint h, DTypeVoid)
+            , decs = dec
+            }
+    let (state1, _) = insertResult state (ResultCustom "ext ") (Just (ExprResult (Id 1, DTypeVoid))) -- ext
+    let inst =
+          Instructions
+            { headerFields = Instruction (Nothing, Comment "header fields") : headInstruction
+            , nameFields = [Instruction (Nothing, Comment "Name fields")]
+            , uniformsFields = [Instruction (Nothing, Comment "uniform fields")]
+            , typeFields = [Instruction (Nothing, Comment "Type fields")]
+            , constFields = [Instruction (Nothing, Comment "Const fields")]
+            , functionFields = [[Instruction (Nothing, Comment "functions fields")]]
+            }
+    (state1, inst)
 
 generateUniforms :: State -> Config -> [Ast.Argument (Range, Ast.Type Range)] -> (State, Instructions)
 generateUniforms state config arg =
-  let (_, uniforms) = foldl (\(i, acc) (Ast.Argument (_, t) (Ast.Name (_, _) name)) -> let acc' = acc ++ [(BS.unpack name, typeConvert t, Input, i)] in (i + 1, acc')) (0, []) arg
-      uniforms' = ("outColor", vector4, Output, 0) : uniforms -- todo handle custom output
-      (state', inst, ids) =
-        foldl
-          ( \(s, i, accId) (name, dType, storage, location) ->
-              let (s1, typeId, inst1) = generateType s (DTypePointer storage dType)
-                  (s2, ExprResult (id, _)) = insertResult s1 (ResultVariable (env s1, name, dType)) Nothing
+  do
+    let (_, uniforms) =
+          foldl
+            ( \(i, acc) (Ast.Argument (_, t) (Ast.Name _ name)) ->
+                let acc' = acc ++ [(BS.unpack name, typeConvert t, Input, i)] in (i + 1, acc')
+            )
+            (0, [])
+            arg
+    let uniforms' = ("outColor", vector4, Output, 0) : uniforms -- todo handle custom output
+    let (state', inst, ids) =
+          foldl
+            ( \(s, i, accId) (name, dType, storage, location) ->
+                do
+                  let (s1, typeId, inst1) = generateType s (DTypePointer storage dType)
+                  let (s2, ExprResult (id, _)) = insertResult s1 (ResultVariable (env s1, name, dType)) Nothing
 
-                  variableInstruction = [Instruction (Just id, OpVariable typeId storage)]
-                  nameInstruction = [Instruction (Nothing, OpName id name)]
-                  uniformsInstruction = [Instruction (Nothing, OpDecorate id (Location location))]
+                  let variableInstruction = [Instruction (Just id, OpVariable typeId storage)]
+                  let nameInstruction = [Instruction (Nothing, OpName id name)]
+                  let uniformsInstruction = [Instruction (Nothing, OpDecorate id (Location location))]
 
-                  updatedInst =
-                    i
-                      +++ inst1
-                        { nameFields = nameFields inst1 ++ nameInstruction
-                        , uniformsFields = uniformsFields inst1 ++ uniformsInstruction
-                        , constFields = constFields inst1 ++ variableInstruction
-                        }
-               in (s2, updatedInst, accId ++ [id])
-          )
-          (state, emptyInstructions, [])
-          uniforms'
-      inst1 =
-        inst
-          { headerFields =
-              headerFields inst ++ [Instruction (Nothing, OpEntryPoint (shaderType config) (IdName (entryPoint config)) (entryPoint config) (ShowList ids))]
-          }
-   in (state', inst1)
+                  let inst1 =
+                        inst1
+                          { nameFields = nameFields inst1 ++ nameInstruction
+                          , uniformsFields = uniformsFields inst1 ++ uniformsInstruction
+                          , constFields = constFields inst1 ++ variableInstruction
+                          }
+                  let updatedInst = i +++ inst1
+
+                  (s2, updatedInst, accId ++ [id])
+            )
+            (state, emptyInstructions, [])
+            uniforms'
+    let inst1 =
+          inst
+            { headerFields =
+                headerFields inst ++ [Instruction (Nothing, OpEntryPoint (shaderType config) (IdName (entryPoint config)) (entryPoint config) (ShowList ids))]
+            }
+    (state', inst1)
 
 -- error (show (env state') ++ show uniforms')
 
@@ -631,57 +641,62 @@ generateFunction (state, inst) (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
 
 generateMainFunction :: (State, Instructions) -> Config -> DecType -> (State, Instructions)
 generateMainFunction (state, inst) config (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
-  let (returnType, argsType) = (DTypeVoid, [])
-      functionType = DTypeFunction returnType argsType
-      (state1, typeId, inst1) = generateType state functionType
-      (state2, ExprResult (funcId, _)) = insertResult state1 (ResultCustom "func ") (Just (ExprResult (IdName (BS.unpack name), functionType)))
+  do
+    let (returnType, argsType) = (DTypeVoid, [])
+    let functionType = DTypeFunction returnType argsType
+    let (state1, typeId, inst1) = generateType state functionType
+    let (state2, ExprResult (funcId, _)) = insertResult state1 (ResultCustom "func ") (Just (ExprResult (IdName (BS.unpack name), functionType)))
 
-      state3 = state2{idCount = idCount state2 + 1, env = (BS.unpack name, functionType)}
-      labelId = Id (idCount state3)
+    let state3 = state2{idCount = idCount state2 + 1, env = (BS.unpack name, functionType)}
+    let labelId = Id (idCount state3)
 
-      (state4, inst2) = generateUniforms state3 config args
-      (state5, ExprResult (resultId, _), inst3, exprInst) = generateExpr state4 e
-      returnTypeId = searchTypeId state5 returnType
+    let (state4, inst2) = generateUniforms state3 config args
+    let (state5, ExprResult (resultId, _), inst3, exprInst) = generateExpr state4 e
+    let returnTypeId = searchTypeId state5 returnType
 
-      -- ExprResult (varId, _) = fromMaybe (error "cant find var :outColor") (findResult state5 (ResultVariableValue (env state5, "outColor", vector4)))
-      ExprResult (varId, _) = fromMaybe (error (show (env state5))) (findResult state5 (ResultVariable (env state5, "outColor", vector4)))
-      saveInst = [Instruction (Nothing, OpStore varId resultId)]
+    -- ExprResult (varId, _) = fromMaybe (error "cant find var :outColor") (findResult state5 (ResultVariableValue (env state5, "outColor", vector4)))
+    let ExprResult (varId, _) = fromMaybe (error (show (env state5))) (findResult state5 (ResultVariable (env state5, "outColor", vector4)))
+    let saveInst = [Instruction (Nothing, OpStore varId resultId)]
 
-      funcInst =
-        [Instruction (Nothing, Comment "function main")]
-          ++ [Instruction (Just funcId, OpFunction returnTypeId None typeId)]
-          ++ [Instruction (Just labelId, OpLabel)]
-          ++ exprInst
-          ++ saveInst
-          ++ [Instruction (Nothing, OpReturn)]
-          ++ [Instruction (Nothing, OpFunctionEnd)]
+    let funcInst =
+          [Instruction (Nothing, Comment "function main")]
+            ++ [Instruction (Just funcId, OpFunction returnTypeId None typeId)]
+            ++ [Instruction (Just labelId, OpLabel)]
+            ++ exprInst
+            ++ saveInst
+            ++ [Instruction (Nothing, OpReturn)]
+            ++ [Instruction (Nothing, OpFunctionEnd)]
 
-      inst4 = (inst +++ inst1 +++ inst2 +++ inst3)
-      inst5 = inst4{functionFields = functionFields inst4 ++ [funcInst]}
-   in (state5, inst5)
+    let inst4 = inst +++ inst1 +++ inst2 +++ inst3
+    let inst5 = inst4{functionFields = functionFields inst4 ++ [funcInst]}
+    (state5, inst5)
 
 -- search dec by name and function signature
 findDec :: [DecType] -> String -> Maybe FunctionSignature -> Maybe DecType
 findDec decs name Nothing =
-  case filter
-    ( \case
-        Ast.Dec (_, _) (Ast.Name (_, _) n) _ _ -> n == BS.pack name
-        _ -> False
-    )
-    decs of
-    [d] -> Just d
-    _ -> Nothing
+  let
+    aux =
+      ( \case
+          Ast.Dec _ (Ast.Name _ n) _ _ -> n == BS.pack name
+          _ -> False
+      )
+   in
+    case filter aux decs of
+      [d] -> Just d
+      _ -> Nothing
 findDec decs name (Just (returnType, args)) =
-  case filter
-    ( \case
-        Ast.Dec (_, _) (Ast.Name (_, _) n) args' _ ->
-          let args'' = map (\(Ast.Argument (_, t) _) -> typeConvert t) args'
-           in n == BS.pack name && args'' == args
-        _ -> False
-    )
-    decs of
-    [d] -> Just d
-    _ -> Nothing
+  let
+    aux =
+      ( \case
+          Ast.Dec _ (Ast.Name _ n) args' _ ->
+            let args'' = map (\(Ast.Argument (_, t) _) -> typeConvert t) args'
+             in n == BS.pack name && args'' == args
+          _ -> False
+      )
+   in
+    case filter aux decs of
+      [d] -> Just d
+      _ -> Nothing
 
 instructionsToString :: Instructions -> String
 instructionsToString inst =
@@ -691,10 +706,10 @@ instructionsToString inst =
 
 generate :: Config -> [DecType] -> Instructions
 generate config decs =
-  let init = generateInit config decs
-      (initState, inst) = init
-      mainDec = findDec decs (entryPoint config) Nothing
-      (state', inst') = generateMainFunction (initState, inst) config (fromMaybe (error "") mainDec)
-      -- (state3, _, inst2) = generateType initState (DTypePointer Input vector2)
-      finalInst = inst'
-   in finalInst
+  do
+    let init@(initState, inst) = generateInit config decs
+    let mainDec = findDec decs (entryPoint config) Nothing
+    let (state', inst') = generateMainFunction init config (fromMaybe (error "") mainDec)
+    -- (state3, _, inst2) = generateType initState (DTypePointer Input vector2)
+    let finalInst = inst'
+    finalInst
