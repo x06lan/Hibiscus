@@ -9,8 +9,9 @@ module Hibiscus.CodeGen where
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.List (intercalate)
 import qualified Data.Map as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe
 import Data.STRef (newSTRef)
+import Debug.Trace
 import Hibiscus.Asm
 import Hibiscus.Ast (Dec)
 import qualified Hibiscus.Ast as Ast
@@ -76,8 +77,38 @@ data State = State
   }
   deriving (Show)
 
+data HeaderFields = HeaderFields
+  { capabilityInst :: Maybe Instruction
+  , extensionInst :: Maybe Instruction
+  , memoryModelInst :: Maybe Instruction
+  , entryPointInst :: Maybe Instruction
+  , executionModeInst :: Maybe Instruction
+  , sourceInst :: Maybe Instruction
+  }
+  deriving (Show)
+
+emptyHeaderFields =
+  HeaderFields
+    { capabilityInst = Nothing
+    , extensionInst = Nothing
+    , memoryModelInst = Nothing
+    , entryPointInst = Nothing
+    , executionModeInst = Nothing
+    , sourceInst = Nothing
+    }
+
+fromHeaderFields :: HeaderFields -> [Instruction]
+fromHeaderFields hf =
+  [ fromJust (capabilityInst hf)
+  , fromJust (extensionInst hf)
+  , fromJust (memoryModelInst hf)
+  , fromJust (entryPointInst hf)
+  , fromJust (executionModeInst hf)
+  , fromJust (sourceInst hf)
+  ]
+
 data Instructions = Instructions
-  { headerFields :: [Instruction]
+  { headerFields :: HeaderFields -- HACK: Maybe
   , nameFields :: [Instruction]
   , uniformsFields :: [Instruction]
   , typeFields :: [Instruction]
@@ -88,7 +119,24 @@ data Instructions = Instructions
 
 (+++) :: Instructions -> Instructions -> Instructions
 (Instructions h1 n1 u1 t1 c1 f1) +++ (Instructions h2 n2 u2 t2 c2 f2) =
-  Instructions (h1 ++ h2) (n1 ++ n2) (u1 ++ u2) (t1 ++ t2) (c1 ++ c2) (f1 ++ f2)
+  Instructions (h1 `merge` h2) (n1 ++ n2) (u1 ++ u2) (t1 ++ t2) (c1 ++ c2) (f1 ++ f2)
+ where
+  mergeMaybe h Nothing = h
+  mergeMaybe Nothing h = h
+  mergeMaybe _ _ = error "fuck"
+
+  merge :: HeaderFields -> HeaderFields -> HeaderFields
+  merge hf1 hf2 =
+    HeaderFields
+      { capabilityInst = mergeMaybe (capabilityInst hf1) (capabilityInst hf2)
+      , extensionInst = mergeMaybe (extensionInst hf1) (extensionInst hf2)
+      , memoryModelInst = mergeMaybe (memoryModelInst hf1) (memoryModelInst hf2)
+      , entryPointInst = mergeMaybe (entryPointInst hf1) (entryPointInst hf2)
+      , executionModeInst = mergeMaybe (executionModeInst hf1) (executionModeInst hf2)
+      , sourceInst = mergeMaybe (sourceInst hf1) (sourceInst hf2)
+      }
+
+-- FIXME: fucked up semantics
 
 defaultConfig :: Config
 defaultConfig =
@@ -107,7 +155,7 @@ defaultConfig =
 emptyInstructions :: Instructions
 emptyInstructions =
   Instructions
-    { headerFields = []
+    { headerFields = emptyHeaderFields -- FIXME:
     , nameFields = []
     , uniformsFields = []
     , typeFields = []
@@ -520,12 +568,14 @@ generateInit h dec =
   do
     let startId = 0
     let headInstruction =
-          [ Instruction (Nothing, OpCapability (capability h))
-          , Instruction (Just (Id (startId + 1)), OpExtInstImport (extension h))
-          , Instruction (Nothing, OpMemoryModel (addressModel h) (memoryModel h))
-          , Instruction (Nothing, OpExecutionMode (IdName (entryPoint h)) (executionMode h))
-          , Instruction (Nothing, uncurry OpSource (source h))
-          ]
+          emptyHeaderFields
+            { capabilityInst = Just $ Instruction (Nothing, OpCapability (capability h))
+            , extensionInst = Just $ Instruction (Just (Id (startId + 1)), OpExtInstImport (extension h))
+            , memoryModelInst = Just $ Instruction (Nothing, OpMemoryModel (addressModel h) (memoryModel h))
+            , -- , Instruction (Nothing, OpEntryPoint (shaderType h) (IdName (entryPoint h)) (entryPoint h) (ShowList ids))
+              executionModeInst = Just $ Instruction (Nothing, OpExecutionMode (IdName (entryPoint h)) (executionMode h))
+            , sourceInst = Just $ Instruction (Nothing, uncurry OpSource (source h))
+            }
 
     -- let constInstruction = []
     let state =
@@ -538,7 +588,7 @@ generateInit h dec =
     let (state1, _) = insertResult state (ResultCustom "ext ") (Just (ExprResult (Id 1, DTypeVoid))) -- ext
     let inst =
           Instructions
-            { headerFields = Instruction (Nothing, Comment "header fields") : headInstruction
+            { headerFields = headInstruction
             , nameFields = [Instruction (Nothing, Comment "Name fields")]
             , uniformsFields = [Instruction (Nothing, Comment "uniform fields")]
             , typeFields = [Instruction (Nothing, Comment "Type fields")]
@@ -569,23 +619,21 @@ generateUniforms state config arg =
                   let nameInstruction = [Instruction (Nothing, OpName id name)]
                   let uniformsInstruction = [Instruction (Nothing, OpDecorate id (Location location))]
 
-                  let inst1 =
+                  let inst1' =
                         inst1
                           { nameFields = nameFields inst1 ++ nameInstruction
                           , uniformsFields = uniformsFields inst1 ++ uniformsInstruction
                           , constFields = constFields inst1 ++ variableInstruction
                           }
-                  let updatedInst = i +++ inst1
+                  let updatedInst = i +++ inst1'
 
                   (s2, updatedInst, accId ++ [id])
             )
             (state, emptyInstructions, [])
             uniforms'
-    let inst1 =
-          inst
-            { headerFields =
-                headerFields inst ++ [Instruction (Nothing, OpEntryPoint (shaderType config) (IdName (entryPoint config)) (entryPoint config) (ShowList ids))]
-            }
+    let hf = trace "test" $ headerFields inst
+    let hf' = hf{entryPointInst = Just $ Instruction (Nothing, OpEntryPoint (shaderType config) (IdName (entryPoint config)) (entryPoint config) (ShowList ids))}
+    let inst1 = inst{headerFields = hf'}
     (state', inst1)
 
 -- error (show (env state') ++ show uniforms')
@@ -700,16 +748,23 @@ findDec decs name (Just (returnType, args)) =
 
 instructionsToString :: Instructions -> String
 instructionsToString inst =
-  let code = headerFields inst ++ nameFields inst ++ uniformsFields inst ++ typeFields inst ++ constFields inst ++ concat (functionFields inst)
-      codeText = intercalate "\n" (map show code)
-   in codeText
+  do
+    let code =
+          fromHeaderFields (headerFields inst)
+            ++ nameFields inst
+            ++ uniformsFields inst
+            ++ typeFields inst
+            ++ constFields inst
+            ++ concat (functionFields inst)
+    let codeText = intercalate "\n" (map show code)
+    codeText
 
 generate :: Config -> [DecType] -> Instructions
 generate config decs =
   do
     let init@(initState, inst) = generateInit config decs
     let mainDec = findDec decs (entryPoint config) Nothing
-    let (state', inst') = generateMainFunction init config (fromMaybe (error "") mainDec)
+    let (state', inst') = generateMainFunction init config (fromJust mainDec)
     -- (state3, _, inst2) = generateType initState (DTypePointer Input vector2)
     let finalInst = inst'
     finalInst
