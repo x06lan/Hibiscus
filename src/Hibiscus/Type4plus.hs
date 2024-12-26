@@ -171,6 +171,7 @@ inferExpr ctx@(env,sub) expr = case expr of
       return (s43210, finalEApp)
   EBinOp _ e1 _ e2 ->
     do
+      -- TODO: boolean opration
       (s1, e1') <- inferExpr ctx              e1
       (s2, e2') <- inferExpr (env, s1 <> sub) e2
       let t1 = getType e1'
@@ -179,6 +180,8 @@ inferExpr ctx@(env,sub) expr = case expr of
       let finalSub = s3 <> s2 <> s1
       return (finalSub, addType (applySub s3 t1) expr)
   _ -> return (s1, addType t expr)
+      -- TODO: list
+      -- TODO: fold
     where
       (s1, t) = freshTypeUnk sub
 
