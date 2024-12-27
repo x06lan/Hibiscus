@@ -1,6 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE InstanceSigs #-}
 {-# OPTIONS_GHC -w #-}
 
 module Hibiscus.Asm
@@ -41,8 +40,7 @@ type ResultType = OpId
 newtype ShowList a = ShowList [a]
 
 instance (Show a) => Show (ShowList a) where
-  show (ShowList []) = ""
-  show (ShowList (x : xs)) = show x ++ " " ++ show (ShowList xs)
+  show (ShowList l) = unwords $ map show l -- join strings with space
 
 type ResultId = OpId
 
