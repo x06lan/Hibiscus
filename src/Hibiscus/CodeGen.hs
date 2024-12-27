@@ -435,13 +435,14 @@ handleLetIn state decs e =
   let 
     (envs, envType )= env state
     state1 = state {env = (envs++["letIn"], envType)}
-    (state2,  inst, varInst,stackInst) = foldl (\(s, acc, acc1,acc2) dec -> let (s', i,vi, si) = generateDec s dec in (s',  acc +++ i, acc1++vi,acc2 ++ si)) (state1,  emptyInstructions, [],[]) decs
+    (state2, inst, varInst, stackInst) = foldr (\dec (s, acc, acc1, acc2) -> let (s', i, vi, si) = generateDec s dec in (s', acc +++ i, acc1 ++ vi, acc2 ++ si)) (state1, emptyInstructions, [], []) decs
     (state3, result, inst1,varInst2 ,stackInst1) = generateExpr state2 e
 
     state4 = state3 {env = (envs, envType)}
   in (state4, result, inst +++ inst1,varInst++varInst2, stackInst ++ stackInst1)
     -- in error (show (findResult state2 (ResultVariableValue (env state2, "x", envType))))
     -- in error (show (idMap state2))
+    -- in error (show decs)
 
 
 handleConst :: State -> Literal -> DataType -> (State, ExprReturn, Instructions, StackInst)
@@ -502,17 +503,14 @@ handleVarFunction state name (returnType, args) =
               | True ->
                   let dec = fromMaybe (error (name ++ show args)) (findDec (decs state) name Nothing)
                       (state', id, inst1) = generateFunction (state, emptyInstructions) dec
-                   in -- temp =generateFunction
+                   in (state', ExprApplication (CustomFunction id name) (return, args) [], inst1, [])
                       -- error (show id ++ show (functionFields inst1))
-                      (state', ExprApplication (CustomFunction id name) (return, args) [], inst1, [])
-            -- custom function -- cus            (Nothing, return, args) -> -- custom function -- cus            (Nothing, return, args) -> -- custom function -- cus            (Nothing, return, args) -> -- custom function
             -- case findResult state (ResultFunction name ) of {}
             _ -> error "Not implemented function"
 
 handleVar :: State -> Type-> BS.ByteString -> (State, ExprReturn, Instructions, StackInst)
 handleVar state t1 n =
   let dType = typeConvert t1
-      -- (state1, typeId, typeInst) = generateType state dType
       (state3, var, inst, stackInst) = case dType of
         DTypeFunction return args ->
           -- function variable
@@ -520,14 +518,17 @@ handleVar state t1 n =
         _ ->
           -- value variable
           let maybeResult = findResult state (ResultVariableValue (env state, BS.unpack n, dType))
-           in case maybeResult of
-                Just x -> (state, x, emptyInstructions, [])
-                Nothing ->
-                  let ExprResult (varId, varType) = fromMaybe (error ("can find var:" ++ show (env state, BS.unpack n, dType))) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
-                      (state2, ExprResult (valueId, _)) = insertResult state (ResultVariableValue (env state, BS.unpack n, dType)) Nothing
-                      inst = [Instruction (Just valueId, OpLoad (searchTypeId state2 varType) varId)]
-                   in (state2, ExprResult (valueId, varType), emptyInstructions, inst)
+             in case maybeResult of
+                  Just x -> (state, x, emptyInstructions, [])
+                  Nothing ->
+                    -- let ExprResult (varId, varType) = fromMaybe (error ("can find var:" ++ show (env state, BS.unpack n, dType))) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
+                    let ExprResult (varId, varType) = fromMaybe (error (show (idMap state))) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
+                        (state2, ExprResult (valueId, _)) = insertResult state (ResultVariableValue (env state, BS.unpack n, dType)) Nothing
+                        inst = [Instruction (Just valueId, OpLoad (searchTypeId state2 varType) varId)]
+                    in (state2, ExprResult (valueId, varType), emptyInstructions, inst)
+  --  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
    in (state3, var, inst, stackInst)
+  --  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
 
 handleApp :: State -> Expr -> Expr -> (State, ExprReturn, Instructions, VariableInst, StackInst)
 handleApp state e1 e2 =
@@ -643,9 +644,9 @@ generateDec state (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
   let varType = typeConvert t
       (state1, typeId, inst1) = generateType state varType
       (state2, result, inst2,varInst, stackInst) = generateExpr state1 e
-      -- (state3, _) = insertResult state2 (ResultVariable (env state2, BS.unpack name, varType)) (Just result)
-      (state3, _) = insertResult state2 (ResultVariableValue (env state2, BS.unpack name, varType)) (Just result)
-    in (state3, inst1 +++ inst2,varInst, stackInst)
+      (state3, _) = insertResult state2 (ResultVariable (env state2, BS.unpack name, varType)) (Just result)
+      (state4, _) = insertResult state3 (ResultVariableValue (env state3, BS.unpack name, varType)) (Just result)
+    in (state4, inst1 +++ inst2,varInst, stackInst)
 
 generateInit :: Config -> [Dec] -> (State, Instructions)
 generateInit h dec =
