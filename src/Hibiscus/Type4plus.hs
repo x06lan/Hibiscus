@@ -194,6 +194,19 @@ inferExpr ctx@(env,sub) expr = case expr of
       let finalType = if isBooleanOp biop then literalT "Bool" else eType
       let finalSub = s3 <> s2 <> s1
       return (finalSub, EBinOp (a,finalType) e1' (addType finalType biop) e2')
+  EIfThenElse a condition thenE elseE -> do
+    (s1, cond')  <- inferExpr ctx                    condition
+    (s2, elseE') <- inferExpr (env, s1 <> sub)       elseE
+    (s3, thenE') <- inferExpr (env, s1 <> s2 <> sub) thenE
+    let s321 = s3 <> s2 <> s1
+    s4 <- unify (applySub s321 $ getType cond') (literalT "Bool")
+    s5 <- unify (applySub (s4 <> s321) $ getType elseE') (applySub (s4 <> s321) $ getType thenE')
+    let finalSub = s5 <> s4 <> s321
+    let finalCond = applySubM finalSub cond'
+    let finalThen = applySubM finalSub thenE'
+    let finalElse = applySubM finalSub elseE'
+    let finalType = applySub finalSub $ getType elseE'
+    return $ (finalSub, EIfThenElse (a, finalType) finalCond finalThen finalElse)
   _ -> return (s1, addType t expr)
       -- TODO: fold
     where
