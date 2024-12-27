@@ -150,6 +150,20 @@ inferExpr ctx@(env,sub) expr = case expr of
   EVar _ x -> case lookup x env of
     Nothing -> fail $ "Unbound variable: " ++ show x
     Just t -> return (mempty, addType t expr)
+  EList a exprs ->
+    let
+      aux :: Expr a -> (Subst, [Expr (a, Type ())]) -> Result (Subst, [Expr (a, Type ())])
+      aux expr (s0, acc) = do
+        (s2 , expr') <- inferExpr (env, s0) expr
+        s3 <- case acc of
+          (x:_) -> unify (getType x) (getType expr')
+          []    -> return mempty
+        let finalSub = s3 <> s2 <> s0
+        return (finalSub, fmap (applySubM finalSub) (expr' : acc))
+    in do
+      (sub, exprs') <- foldrM aux (mempty, []) exprs
+      let (s', t) = foldr (\x _ -> (sub, getType x)) (freshTypeUnk' sub) exprs'
+      return (s', EList (a, TList () t) exprs')
   ELetIn a decs body ->
     do
       ctx'@(e0, s0) <- envFrom ctx decs
@@ -169,16 +183,32 @@ inferExpr ctx@(env,sub) expr = case expr of
       let s43210 = s4 <> s3210
       let finalEApp = EApp (a, applySub s4 tv) (applySubM s43210 f') (applySubM s43210 x')
       return (s43210, finalEApp)
-  EBinOp _ e1 _ e2 ->
+  EBinOp a e1 biop e2 ->
     do
       (s1, e1') <- inferExpr ctx              e1
       (s2, e2') <- inferExpr (env, s1 <> sub) e2
       let t1 = getType e1'
       let t2 = getType e2'
       s3 <- unify t1 t2
+      let eType = applySub s3 t1
+      let finalType = if isBooleanOp biop then literalT "Bool" else eType
       let finalSub = s3 <> s2 <> s1
-      return (finalSub, addType (applySub s3 t1) expr)
+      return (finalSub, EBinOp (a,finalType) e1' (addType finalType biop) e2')
+  EIfThenElse a condition thenE elseE -> do
+    (s1, cond')  <- inferExpr ctx                    condition
+    (s2, elseE') <- inferExpr (env, s1 <> sub)       elseE
+    (s3, thenE') <- inferExpr (env, s1 <> s2 <> sub) thenE
+    let s321 = s3 <> s2 <> s1
+    s4 <- unify (applySub s321 $ getType cond') (literalT "Bool")
+    s5 <- unify (applySub (s4 <> s321) $ getType elseE') (applySub (s4 <> s321) $ getType thenE')
+    let finalSub = s5 <> s4 <> s321
+    let finalCond = applySubM finalSub cond'
+    let finalThen = applySubM finalSub thenE'
+    let finalElse = applySubM finalSub elseE'
+    let finalType = applySub finalSub $ getType elseE'
+    return $ (finalSub, EIfThenElse (a, finalType) finalCond finalThen finalElse)
   _ -> return (s1, addType t expr)
+      -- TODO: fold
     where
       (s1, t) = freshTypeUnk sub
 

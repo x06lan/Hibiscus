@@ -23,7 +23,6 @@ library
       Hibiscus.Asm
       Hibiscus.Type4plus
   other-modules:
-      Hibiscus.Type2
       Paths_hibiscus
   hs-source-dirs:
       src

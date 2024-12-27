@@ -71,16 +71,26 @@ data Expr a
   deriving (Functor, Foldable, Show)
 
 data Op a
-  = Plus a
-  | Minus a
-  | Times a
-  | Divide a
-  | Eq a
-  | Neq a
-  | Lt a
-  | Le a
-  | Gt a
-  | Ge a
-  | And a
-  | Or a
-  deriving (Eq, Functor, Foldable, Show)
+    = Plus a
+    | Minus a
+    | Times a
+    | Divide a
+    | Eq a
+    | Neq a
+    | Lt a
+    | Le a
+    | Gt a
+    | Ge a
+    | And a
+    | Or a
+    deriving (Eq, Functor, Foldable, Show)
+
+-- NOTE: Hardcode 
+isBooleanOp :: Op a -> Bool
+isBooleanOp (Eq _) = True
+isBooleanOp (Neq _) = True
+isBooleanOp (Lt _) = True
+isBooleanOp (Le _) = True
+isBooleanOp (Gt _) = True
+isBooleanOp (Ge _) = True
+isBooleanOp _ = False
