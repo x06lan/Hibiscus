@@ -84,3 +84,13 @@ data Op a
     | And a
     | Or a
     deriving (Eq, Functor, Foldable, Show)
+
+-- NOTE: Hardcode 
+isBooleanOp :: Op a -> Bool
+isBooleanOp (Eq _) = True
+isBooleanOp (Neq _) = True
+isBooleanOp (Lt _) = True
+isBooleanOp (Le _) = True
+isBooleanOp (Gt _) = True
+isBooleanOp (Ge _) = True
+isBooleanOp _ = False
