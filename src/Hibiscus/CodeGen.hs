@@ -20,6 +20,8 @@ import Hibiscus.Parser
 import Hibiscus.Typing
 import Control.Exception (handle)
 
+import qualified Hibiscus.Type4plus as TI -- type infer
+
 import Data.Foldable (foldlM, foldrM)
 import Control.Monad.State.Lazy
 
@@ -970,32 +972,33 @@ generateMainFunction (state, inst) config (Ast.Dec (_, t) (Ast.Name (_, _) name)
     let inst5 = inst4{functionFields = functionFields inst4 ++ [funcInst]}
     (state5, inst5)
 
+findDec' :: String -> Maybe FunctionSignature -> [Dec] -> Maybe Dec
+findDec' name maybeFS = find' aux
+  where
+    aux = case maybeFS of
+      Nothing ->
+        ( \case
+            Ast.Dec _ (Ast.Name _ n) _ _ -> n == BS.pack name
+            _ -> False
+        )
+      Just (_, argTs) ->
+        ( \case
+            Ast.Dec _ (Ast.Name _ n) args' _ ->
+              let argTs' = map (typeConvert . TI.getType) args'
+              in n == BS.pack name && argTs == argTs
+            _ -> False
+        )
+    find' :: (a -> Bool) -> [a] -> Maybe a
+    find' p xs =
+      case filter p xs of
+        [v] -> Just v
+        [] -> Nothing
+        _ -> error "found multiple result, perhaps you want to use `find`"
+
 -- search dec by name and function signature
 findDec :: [Dec] -> String -> Maybe FunctionSignature -> Maybe Dec
-findDec decs name Nothing =
-  let
-    aux =
-      ( \case
-          Ast.Dec _ (Ast.Name _ n) _ _ -> n == BS.pack name
-          _ -> False
-      )
-   in
-    case filter aux decs of
-      [d] -> Just d
-      _ -> Nothing
-findDec decs name (Just (returnType, args)) =
-  let
-    aux =
-      ( \case
-          Ast.Dec _ (Ast.Name _ n) args' _ ->
-            let args'' = map (\(Ast.Argument (_, t) _) -> typeConvert t) args'
-             in n == BS.pack name && args'' == args
-          _ -> False
-      )
-   in
-    case filter aux decs of
-      [d] -> Just d
-      _ -> Nothing
+findDec decs n mfs = findDec' n mfs decs
+
 flattenFunctionInst :: FunctionInst -> [Instruction]
 flattenFunctionInst func =
   do
