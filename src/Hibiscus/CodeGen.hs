@@ -879,27 +879,21 @@ generateUniforms state config arg =
 
 -- error (show (env state') ++ show uniforms')
 
-generateFunctionParam :: LanxSt -> [Ast.Argument (Range, Type)] -> (LanxSt, Instructions, [Instruction])
-generateFunctionParam state arg =
-  do
-    let vars =
-          foldr
-            ( \(Ast.Argument (_, t) (Ast.Name (_, _) name)) acc ->
-                (BS.unpack name, typeConvert t) : acc
-            )
-            []
-            arg
-    let (state', inst, stackInst) =
-          foldr
-            ( \(name, dType) (s, i, stackInst) ->
-                let (s', typeId, inst1) = generateType s (DTypePointer Function dType)
-                    (s'', ExprResult (id, _)) = insertResult s' (ResultVariable (env s', name, dType)) Nothing
-                    paramInst = returnedInstruction (id) ( OpFunctionParameter typeId)
-                 in (s'', inst1 +++ i, paramInst : stackInst)
-            )
-            (state, emptyInstructions, [])
-            vars
-    (state', inst, stackInst)
+generateFunctionParamSt :: [Ast.Argument (Range, Type)] -> State LanxSt (Instructions, [Instruction])
+generateFunctionParamSt args =
+  let 
+    extract (Ast.Argument (_, t) (Ast.Name _ name)) = (BS.unpack name, typeConvert t)
+    aux :: (String, DataType) -> State LanxSt (Instructions, Instruction)
+    aux (name, dType) = do
+      (typeId, inst1) <- generateTypeSt (DTypePointer Function dType)s
+      s' <- get
+      er <- insertResultSt (ResultVariable (env s', name, dType)) Nothing
+      let (ExprResult (id, _)) = er
+      let paramInst = returnedInstruction (id) (OpFunctionParameter typeId)
+      return (inst1, paramInst)
+    shit (is, i) = (is, [i]) -- it's a anti-optimised move, but making less mentally taxing
+  in do
+    foldMapM (fmap shit . aux) . fmap extract $ args
 
 -- error (show (env state') ++ show vars)
 
@@ -914,7 +908,7 @@ generateFunction (state, inst) (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     let state2 = state1{env = ([BS.unpack name], functionType)}
 
     let (state3, ExprResult (funcId, funcType)) = insertResult state2 (ResultFunction (BS.unpack name) (returnType, argsType)) Nothing
-    let (state4, inst2, paramInst) = generateFunctionParam state3 args
+    let ((inst2, paramInst), state4) = runState (generateFunctionParamSt args) state3
     let state5 = state4{idCount = idCount state4 + 1}
     let labelId = Id (idCount state5)
     let (state6, ExprResult (resultId, _), inst3,varInst, exprInst) = generateExpr state5 e  -- todo handle return variable are function
