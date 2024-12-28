@@ -20,9 +20,18 @@ import Hibiscus.Parser
 import Hibiscus.Typing
 import Control.Exception (handle)
 
+import Data.Foldable (foldlM, foldrM)
 import Control.Monad.State.Lazy
 
 -- import Data.IntMap (fromList, foldlWithKey)
+
+foldMapM :: (Foldable t, Monad m, Monoid b) => (a -> m b) -> t a -> m b
+foldMapM f = foldr aux (return mempty)
+  where
+    aux a mbcc = do
+      b <- f a
+      bcc <- mbcc
+      return $ b <> bcc
 
 ----- Instruction constructor helpers BEGIN -----
 
@@ -153,6 +162,12 @@ data Instructions = Instructions
   }
   deriving (Show)
 
+-- FIXME: this is actually not Monoid AFAIK. BE CAREFUL WHEN USE IT
+instance Semigroup Instructions where
+  (<>) = (+++)
+instance Monoid Instructions where
+  mempty = emptyInstructions
+
 (+++) :: Instructions -> Instructions -> Instructions
 (Instructions h1 n1 u1 t1 c1 f1) +++ (Instructions h2 n2 u2 t2 c2 f2) =
   Instructions (h1 `merge` h2) (n1 ++ n2) (u1 ++ u2) (t1 ++ t2) (c1 ++ c2) (f1 ++ f2)
@@ -278,25 +293,34 @@ searchTypeId s dt = case findResult s (ResultDataType dt) of
     _ -> error (show dt ++ " type not found")
   Nothing -> error (show dt ++ " type not found")
 
+-- TODO: unfinished monad-ize
+generateTypeSt :: DataType -> State LanxSt (OpId, Instructions)
+generateTypeSt dType = state $ \s ->
+    let (s', id, inst) = generateType s dType
+     in ((id, inst), s')
+
+generateTypeSt_aux1 :: DataType -> State LanxSt (Instructions)
+generateTypeSt_aux1 dType = do
+  case dType of
+    DTypeUnknown -> error "Unknown type"
+    DTypeVoid    -> return emptyInstructions
+    DTypeBool    -> return emptyInstructions
+    DTypeInt _   -> return emptyInstructions
+    DTypeUInt _  -> return emptyInstructions
+    DTypeFloat _ -> return emptyInstructions
+    DTypeVector _ baseType  -> do (_, inst) <- generateTypeSt baseType; return inst
+    DTypeMatrix _ baseType  -> do (_, inst) <- generateTypeSt baseType; return inst
+    DTypeArray _ baseType   -> do (_, inst) <- generateTypeSt baseType; return inst
+    DTypePointer _ baseType -> do (_, inst) <- generateTypeSt baseType; return inst
+    DTypeStruct _ fields              -> foldMapM (\field -> do (_, inst) <- generateTypeSt field;                     return inst) fields
+    DTypeFunction returnType argsType -> foldMapM (\t ->     do (_, inst) <- generateTypeSt (DTypePointer Function t); return inst) (returnType : argsType)
+
 generateType :: LanxSt -> DataType -> (LanxSt, OpId, Instructions)
 generateType state dType =
   case findResult state (ResultDataType dType) of
     Just (ExprResult (typeId, _)) -> (state, typeId, emptyInstructions)
     Nothing ->
-      let (state1, inst) = case dType of
-            DTypeUnknown -> error "Unknown type"
-            DTypeVoid -> (state, emptyInstructions)
-            DTypeBool -> (state, emptyInstructions)
-            DTypeInt _ -> (state, emptyInstructions)
-            DTypeUInt _ -> (state, emptyInstructions)
-            DTypeFloat _ -> (state, emptyInstructions)
-            DTypeVector _ baseType -> let (s', id, inst') = generateType state baseType in (s', inst')
-            DTypeMatrix _ baseType -> let (s', id, inst') = generateType state baseType in (s', inst')
-            DTypeArray _ baseType -> let (s', id, inst') = generateType state baseType in (s', inst')
-            DTypePointer _ baseType -> let (s', id, inst') = generateType state baseType in (s', inst')
-            -- FIXME: unsure what to modify here
-            DTypeStruct _ fields -> foldl (\(s, inst') field -> let (s', id, inst'') = generateType s field in (s', inst' +++ inst'')) (state, emptyInstructions) fields
-            DTypeFunction returnType argsType -> foldl (\(s, inst') t -> let (s', id, inst'') = generateType s (DTypePointer Function t) in (s', inst' +++ inst'')) (state, emptyInstructions) (returnType : argsType)
+      let (inst, state1) = runState (generateTypeSt_aux1 dType) state
           (state2, ExprResult (typeId, _)) = insertResult state1 (ResultDataType dType) Nothing
           searchTypeId' = searchTypeId state2
 
