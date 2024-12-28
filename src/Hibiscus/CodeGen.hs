@@ -13,7 +13,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.STRef (newSTRef)
 import Debug.Trace
-import Hibiscus.Asm 
+import Hibiscus.Asm
 import qualified Hibiscus.Ast as Ast
 import Hibiscus.Lexer
 import Hibiscus.Parser
@@ -22,6 +22,9 @@ import Control.Exception (handle)
 
 import Data.Foldable (foldlM, foldrM)
 import Control.Monad.State.Lazy
+
+-- IDK why this is not imported from Asm
+type ResultId = OpId
 
 -- import Data.IntMap (fromList, foldlWithKey)
 
@@ -38,7 +41,7 @@ foldMapM f = foldr aux (return mempty)
 noReturnInstruction :: Ops -> Instruction
 noReturnInstruction op = Instruction (Nothing, op)
 
--- returnedInstruction :: ResultId -> Ops -> Instruction
+returnedInstruction :: ResultId -> Ops -> Instruction
 returnedInstruction id op = Instruction (Just id, op)
 
 commentInstruction :: String -> Instruction
@@ -257,12 +260,11 @@ insertResult state key maybER =
   let (v, s') = runState (insertResultSt key maybER) state
    in (s', v)
 
--- TODO: Unfinished monad-ise
 generateEntrySt :: ResultType -> State LanxSt (ExprReturn)
 generateEntrySt key = state $ \s ->
   let (newMap, newId, newCount) = generateEntry s key
       s' = s{idMap = newMap, idCount = newCount}
-  in (newId, s')
+   in (newId, s')
 
 -- Helper function to generate a new entry for the IdType
 generateEntry :: LanxSt -> ResultType -> (ResultMap, ExprReturn, Int)
@@ -303,12 +305,6 @@ searchTypeId s dt = case findResult s (ResultDataType dt) of
     _ -> error (show dt ++ " type not found")
   Nothing -> error (show dt ++ " type not found")
 
--- TODO: unfinished monad-ize
-generateTypeSt :: DataType -> State LanxSt (OpId, Instructions)
-generateTypeSt dType = state $ \s ->
-    let (s', id, inst) = generateType s dType
-     in ((id, inst), s')
-
 generateTypeSt_aux1 :: DataType -> State LanxSt (Instructions)
 generateTypeSt_aux1 dType = do
   case dType of
@@ -325,49 +321,64 @@ generateTypeSt_aux1 dType = do
     DTypeStruct _ fields              -> foldMapM (\field -> do (_, inst) <- generateTypeSt field;                     return inst) fields
     DTypeFunction returnType argsType -> foldMapM (\t ->     do (_, inst) <- generateTypeSt (DTypePointer Function t); return inst) (returnType : argsType)
 
+generateTypeSt_aux2 :: DataType -> ResultId -> State LanxSt (Instructions)
+generateTypeSt_aux2 dType typeId = state $ \state2 ->
+  let
+    searchTypeId' = searchTypeId state2
+
+    -- IDK how this is possible, so I'll leave this magic in the box.
+    (state3, inst3) = case dType of
+      DTypeUnknown -> error "Unknown type"
+      DTypeVoid                 -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeVoid)]})
+      DTypeBool                 -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeBool)]})
+      DTypeInt size             -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeInt size 0)]})
+      DTypeUInt size            -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeInt size 1)]})
+      DTypeFloat size           -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeFloat size)]})
+      DTypeVector size baseType -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeVector (searchTypeId' baseType) size)]})
+      DTypeMatrix col baseType  -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeMatrix (searchTypeId' baseType) col)]})
+      DTypeArray size baseType ->
+        let (state4, constId, inst2) = generateConst state3 (LUint size)
+            arrayInst = [returnedInstruction typeId (OpTypeArray (searchTypeId' baseType) constId)]
+            inst3' = inst2{typeFields = typeFields inst2 ++ arrayInst}
+          in (state4, inst3')
+      DTypePointer storage DTypeVoid -> (state2, emptyInstructions)
+      DTypePointer storage baseType ->
+        let pointerInst = [returnedInstruction typeId (OpTypePointer storage (searchTypeId' baseType))]
+            inst2' = emptyInstructions{typeFields = pointerInst}
+          in (state2, inst2')
+      DTypeStruct name baseTypes ->
+        let structInst = [returnedInstruction typeId (OpTypeStruct (ShowList (map searchTypeId' baseTypes)))]
+            inst2' = emptyInstructions{typeFields = structInst}
+          in (state2, inst2')
+      DTypeFunction returnType argTypes ->
+        let functionInst = [returnedInstruction typeId (OpTypeFunction (searchTypeId' returnType) (ShowList (map (searchTypeId' . DTypePointer Function) argTypes)))]
+            inst2' = emptyInstructions{typeFields = functionInst}
+          in (state2, inst2')
+
+    updatedState =
+      state3
+        { idCount = idCount state3
+        , idMap = idMap state3
+        }
+  in
+    (inst3, updatedState)
+
+generateTypeSt :: DataType -> State LanxSt (OpId, Instructions)
+generateTypeSt dType = do
+  state <- get
+  case findResult state (ResultDataType dType) of
+    Just (ExprResult (typeId, _)) -> return (typeId, emptyInstructions)
+    Nothing -> do
+      inst  <- generateTypeSt_aux1 dType
+      _er   <- insertResultSt (ResultDataType dType) Nothing
+      let (ExprResult (typeId, _)) = _er
+      inst3 <- generateTypeSt_aux2 dType typeId
+      return (typeId, inst +++ inst3)
+
 generateType :: LanxSt -> DataType -> (LanxSt, OpId, Instructions)
 generateType state dType =
-  case findResult state (ResultDataType dType) of
-    Just (ExprResult (typeId, _)) -> (state, typeId, emptyInstructions)
-    Nothing ->
-      let (inst, state1) = runState (generateTypeSt_aux1 dType) state
-          (ExprResult (typeId, _), state2) = runState (insertResultSt (ResultDataType dType) Nothing) state1
-          searchTypeId' = searchTypeId state2
-
-          (state3, inst3) = case dType of
-            DTypeUnknown -> error "Unknown type"
-            DTypeVoid                 -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeVoid)]})
-            DTypeBool                 -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeBool)]})
-            DTypeInt size             -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeInt size 0)]})
-            DTypeUInt size            -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeInt size 1)]})
-            DTypeFloat size           -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeFloat size)]})
-            DTypeVector size baseType -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeVector (searchTypeId' baseType) size)]})
-            DTypeMatrix col baseType  -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeMatrix (searchTypeId' baseType) col)]})
-            DTypeArray size baseType ->
-              let (state4, constId, inst2) = generateConst state3 (LUint size)
-                  arrayInst = [returnedInstruction typeId (OpTypeArray (searchTypeId' baseType) constId)]
-                  inst3' = inst2{typeFields = typeFields inst2 ++ arrayInst}
-               in (state4, inst3')
-            DTypePointer storage DTypeVoid -> (state2, emptyInstructions)
-            DTypePointer storage baseType ->
-              let pointerInst = [returnedInstruction typeId (OpTypePointer storage (searchTypeId' baseType))]
-                  inst2' = emptyInstructions{typeFields = pointerInst}
-               in (state2, inst2')
-            DTypeStruct name baseTypes ->
-              let structInst = [returnedInstruction typeId (OpTypeStruct (ShowList (map searchTypeId' baseTypes)))]
-                  inst2' = emptyInstructions{typeFields = structInst}
-               in (state2, inst2')
-            DTypeFunction returnType argTypes ->
-              let functionInst = [returnedInstruction typeId (OpTypeFunction (searchTypeId' returnType) (ShowList (map (searchTypeId' . DTypePointer Function) argTypes)))]
-                  inst2' = emptyInstructions{typeFields = functionInst}
-               in (state2, inst2')
-
-          updatedState =
-            state3
-              { idCount = idCount state3
-              , idMap = idMap state3
-              }
-       in (updatedState, typeId, inst +++ inst3)
+  let ((id, inst), s') = runState (generateTypeSt dType) state
+   in (s', id, inst)
 
 dtypeof :: Literal -> DataType
 dtypeof (LBool _)  = bool
@@ -375,14 +386,20 @@ dtypeof (LUint _)  = uint32
 dtypeof (LInt _)   = int32
 dtypeof (LFloat _) = float32
 
+generateConstSt :: Literal -> State LanxSt (OpId, Instructions)
+generateConstSt v = do
+  let dtype = dtypeof v
+  (typeId, typeInst) <- generateTypeSt dtype
+  er <- insertResultSt (ResultConstant v) Nothing
+  let (ExprResult (constId, dType)) = er
+  let constInstruction = [returnedInstruction constId (OpConstant typeId v)]
+  let inst = typeInst{constFields = constFields typeInst ++ constInstruction}
+  return (constId, inst)
+
 generateConst :: LanxSt -> Literal -> (LanxSt, OpId, Instructions)
 generateConst state v =
-  let dtype = dtypeof v
-      (state', typeId, typeInst) = generateType state dtype
-      (state'', ExprResult (constId, dType)) = insertResult state' (ResultConstant v) Nothing
-      constInstruction = [returnedInstruction constId (OpConstant typeId v)]
-      inst = typeInst{constFields = constFields typeInst ++ constInstruction}
-   in (state'', constId, inst)
+  let ((id, inst), s') = runState (generateConstSt v) state
+   in (s', id, inst)
 
 generateNegOp :: LanxSt -> Variable -> (LanxSt, Variable, StackInst)
 generateNegOp state v =
