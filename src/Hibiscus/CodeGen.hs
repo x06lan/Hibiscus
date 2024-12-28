@@ -333,13 +333,15 @@ generateType state dType =
               }
        in (updatedState, typeId, inst +++ inst3)
 
+dtypeof :: Literal -> DataType
+dtypeof (LBool _)  = bool
+dtypeof (LUint _)  = uint32
+dtypeof (LInt _)   = int32
+dtypeof (LFloat _) = float32
+
 generateConst :: State -> Literal -> (State, OpId, Instructions)
 generateConst state v =
-  let dtype = case v of
-        LBool _ -> DTypeBool
-        LUint _ -> DTypeUInt 32
-        LInt _ -> DTypeInt 32
-        LFloat _ -> DTypeFloat 32
+  let dtype = dtypeof v
       (state', typeId, typeInst) = generateType state dtype
       (state'', ExprResult (constId, dType)) = insertResult state' (ResultConstant v) Nothing
       constInstruction = [returnedInstruction constId (OpConstant typeId v)]
@@ -428,20 +430,22 @@ generateBinOp state v1 op v2 =
 generateExpr :: State -> Expr -> (State, ExprReturn, Instructions,VariableInst, StackInst)
 generateExpr state expr =
   case expr of
-    Ast.EBool _ b -> let (s,v,i,si) = handleConst state (LBool b) bool in (s, v, i, [], si)
-    Ast.EInt _ int -> let (s,v,i,si) = handleConst state (LInt int) int32 in (s, v, i, [], si)
-    Ast.EFloat _ f ->let (s,v,i,si) = handleConst state (LFloat f) float32 in (s, v, i, [], si)
-    Ast.EList _ l ->handleArray state l
-    Ast.EPar _ e -> generateExpr state e
-    Ast.EVar (_, t1) (Ast.Name (_, _) name) ->let (s,v,i,si) = handleVar state t1 name in (s, v, i, [], si)
-    Ast.EString _ _ -> error "String"
-    Ast.EUnit _ -> error "Unit"
-    Ast.EApp _ e1 e2 -> handleApp state e1 e2
-    Ast.EIfThenElse _ e1 e2 e3 -> handleIfThenElse state e1 e2 e3
-    Ast.ENeg _ e -> handleNeg state e
+    Ast.EBool _ x         -> let (s,v,i,si) = handleConst state (LBool x)  in (s, v, i, [], si)
+    Ast.EInt _ x          -> let (s,v,i,si) = handleConst state (LInt x)   in (s, v, i, [], si)
+    Ast.EFloat _ x        -> let (s,v,i,si) = handleConst state (LFloat x) in (s, v, i, [], si)
+    Ast.EList _ l         -> handleArray state l
+    Ast.EPar _ e          -> generateExpr state e
+    Ast.EVar (_, t1) (Ast.Name (_, _) name) ->
+                             let (s,v,i,si) = handleVar state t1 name in (s, v, i, [], si)
+    Ast.EString _ _       -> error "String"
+    Ast.EUnit _           -> error "Unit"
+    Ast.EApp _ e1 e2      -> handleApp state e1 e2
+    Ast.EIfThenElse _ e1 e2 e3 ->
+                             handleIfThenElse state e1 e2 e3
+    Ast.ENeg _ e          -> handleNeg state e
     Ast.EBinOp _ e1 op e2 -> handleBinOp state e1 op e2
-    Ast.EOp _ _ -> let (s,v,i,si) = handleOp state expr in (s, v, i, [], si)
-    Ast.ELetIn _ decs e -> handleLetIn state decs e
+    Ast.EOp _ _           -> let (s,v,i,si) = handleOp state expr in (s, v, i, [], si)
+    Ast.ELetIn _ decs e   -> handleLetIn state decs e
 
 handleLetIn :: State -> [Dec] -> Expr -> (State, ExprReturn, Instructions, VariableInst, StackInst)
 handleLetIn state decs e =
@@ -458,11 +462,10 @@ handleLetIn state decs e =
     -- in error (show decs)
 
 
-handleConst :: State -> Literal -> DataType -> (State, ExprReturn, Instructions, StackInst)
-handleConst state lit dType =
-
+handleConst :: State -> Literal -> (State, ExprReturn, Instructions, StackInst)
+handleConst state lit =
   let (s, id, inst) = generateConst state lit
-   in (s, ExprResult (id, dType), inst,[])
+   in (s, ExprResult (id, dtypeof lit), inst,[])
 
 handleArray :: State -> [Expr] -> (State, ExprReturn, Instructions, VariableInst, StackInst)
 handleArray state l =
@@ -483,18 +486,18 @@ handleArray state l =
 handleOp :: State -> Expr -> (State, ExprReturn, Instructions, StackInst)
 handleOp state (Ast.EOp _ op) =
   let funcSign = case op of
-        Ast.Plus _ -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
-        Ast.Minus _ -> (DTypeUnknown, [DTypeUnknown])
-        Ast.Times _ -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
+        Ast.Plus _   -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
+        Ast.Minus _  -> (DTypeUnknown, [DTypeUnknown])
+        Ast.Times _  -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
         Ast.Divide _ -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
-        Ast.Eq _ -> (bool, [DTypeUnknown, DTypeUnknown])
-        Ast.Neq _ -> (bool, [DTypeUnknown, DTypeUnknown])
-        Ast.Lt _ -> (bool, [DTypeUnknown, DTypeUnknown])
-        Ast.Le _ -> (bool, [DTypeUnknown, DTypeUnknown])
-        Ast.Gt _ -> (bool, [DTypeUnknown, DTypeUnknown])
-        Ast.Ge _ -> (bool, [DTypeUnknown, DTypeUnknown])
-        Ast.And _ -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
-        Ast.Or _ -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
+        Ast.Eq _     -> (bool,         [DTypeUnknown, DTypeUnknown])
+        Ast.Neq _    -> (bool,         [DTypeUnknown, DTypeUnknown])
+        Ast.Lt _     -> (bool,         [DTypeUnknown, DTypeUnknown])
+        Ast.Le _     -> (bool,         [DTypeUnknown, DTypeUnknown])
+        Ast.Gt _     -> (bool,         [DTypeUnknown, DTypeUnknown])
+        Ast.Ge _     -> (bool,         [DTypeUnknown, DTypeUnknown])
+        Ast.And _    -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
+        Ast.Or _     -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
    in (state, ExprApplication (OperatorFunction op) funcSign [], emptyInstructions, [])
 
 handleVarFunction :: State -> String -> FunctionSignature -> (State, ExprReturn, Instructions,  StackInst)
