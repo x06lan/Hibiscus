@@ -165,6 +165,12 @@ data Instructions = Instructions
   }
   deriving (Show)
 
+dtypeof :: Literal -> DataType
+dtypeof (LBool _)  = bool
+dtypeof (LUint _)  = uint32
+dtypeof (LInt _)   = int32
+dtypeof (LFloat _) = float32
+
 -- FIXME: AFAIK, Instructions don’t actually form a Monoid.
 --        However, since most folds are associative, I created this instance
 --        to leverage Monoid for folding, making it less mentally taxing to work with.
@@ -380,12 +386,6 @@ generateType state dType =
   let ((id, inst), s') = runState (generateTypeSt dType) state
    in (s', id, inst)
 
-dtypeof :: Literal -> DataType
-dtypeof (LBool _)  = bool
-dtypeof (LUint _)  = uint32
-dtypeof (LInt _)   = int32
-dtypeof (LFloat _) = float32
-
 generateConstSt :: Literal -> State LanxSt (OpId, Instructions)
 generateConstSt v = do
   let dtype = dtypeof v
@@ -401,8 +401,8 @@ generateConst state v =
   let ((id, inst), s') = runState (generateConstSt v) state
    in (s', id, inst)
 
-generateNegOp :: LanxSt -> Variable -> (LanxSt, Variable, StackInst)
-generateNegOp state v =
+generateNegOpSt :: Variable -> State LanxSt (Variable, StackInst)
+generateNegOpSt v = state $ \state ->
   let id = Id (idCount state + 1)
       (e, t, typeId) = (fst v, snd v, searchTypeId state (snd v))
       state' =
@@ -420,7 +420,18 @@ generateNegOp state v =
                 [returnedInstruction id (OpFNegate typeId e)]
           _ -> error ("not support neg of " ++ show t)
       result = (id, t)
-   in (state', result, inst)
+   in ((result, inst), state')
+
+generateNegOp :: LanxSt -> Variable -> (LanxSt, Variable, StackInst)
+generateNegOp state v =
+  let ((result, inst), s') = runState (generateNegOpSt v) state
+   in (s', result, inst)
+
+-- TODO: Unfinished Monad-ise
+generateBinOpSt :: Variable -> Ast.Op (Range, Type) -> Variable -> State LanxSt (Variable, Instructions, StackInst)
+generateBinOpSt v1 op v2 = state $ \s ->
+  let (s', v, i, si) = generateBinOp s v1 op v2
+   in ((v, i, si), s')
 
 generateBinOp :: LanxSt -> Variable -> Ast.Op (Range, Type) -> Variable -> (LanxSt, Variable, Instructions, StackInst)
 generateBinOp state v1 op v2 =
@@ -480,6 +491,12 @@ generateBinOp state v1 op v2 =
           _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
    in (state', (id, resultType), emptyInstructions, [instruction])
 
+-- TODO: Unfinished Monad-ise
+generateExprSt :: Expr -> State LanxSt (ExprReturn, Instructions,VariableInst, StackInst)
+generateExprSt e = state $ \s ->
+  let (s', er, inst, vi, si) = generateExpr s e
+   in ((er, inst, vi, si), s')
+
 generateExpr :: LanxSt -> Expr -> (LanxSt, ExprReturn, Instructions,VariableInst, StackInst)
 generateExpr state expr =
   case expr of
@@ -500,6 +517,12 @@ generateExpr state expr =
     Ast.EOp _ _           -> let (s,v,i,si) = handleOp state expr in (s, v, i, [], si)
     Ast.ELetIn _ decs e   -> handleLetIn state decs e
 
+-- TODO: Unfinished Monad-ise
+handleLetInSt ::[Dec] -> Expr -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleLetInSt ds e = state $ \s ->
+  let r@(s', er, inst, vi, si) = handleLetIn s ds e
+   in ((er, inst, vi, si), s')
+
 handleLetIn :: LanxSt -> [Dec] -> Expr -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
 handleLetIn state decs e =
   let 
@@ -514,19 +537,22 @@ handleLetIn state decs e =
     -- in error (show (idMap state2))
     -- in error (show decs)
 
+handleConstSt :: Literal -> State LanxSt (ExprReturn, Instructions, StackInst)
+handleConstSt lit =
+  do
+    (id, inst) <- generateConstSt lit
+    return (ExprResult (id, dtypeof lit), inst,[])
 
 handleConst :: LanxSt -> Literal -> (LanxSt, ExprReturn, Instructions, StackInst)
 handleConst state lit =
   let ((er, inst, si), s') = runState (handleConstSt lit) state
    in (s', er, inst, si)
 
-handleConstSt :: Literal -> State LanxSt (ExprReturn, Instructions, StackInst)
-handleConstSt lit =
-  do
-    s <- get
-    let (s', id, inst) = generateConst s lit -- TODO: Unfinished monad-ize
-    put s'
-    return (ExprResult (id, dtypeof lit), inst,[])
+-- TODO: Unfinished Monad-ise
+handleArraySt :: [Expr] -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleArraySt es = state $ \s ->
+  let (s', er, i,vi,si) = handleArray s es
+   in ((er, i,vi,si), s')
 
 handleArray :: LanxSt -> [Expr] -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
 handleArray state l =
@@ -544,6 +570,12 @@ handleArray state l =
       (state2, typeId, typeInst) = generateType state1 (DTypeArray len DTypeUnknown)
    in error "Not implemented array"
 
+-- TODO: Unfinished Monad-ise
+handleOpSt :: Expr -> State LanxSt (ExprReturn, Instructions, StackInst)
+handleOpSt e = state $ \s ->
+  let (s', er, i,si) = handleOp s e
+   in ((er, i, si), s')
+
 handleOp :: LanxSt -> Expr -> (LanxSt, ExprReturn, Instructions, StackInst)
 handleOp state (Ast.EOp _ op) =
   let funcSign = case op of
@@ -560,6 +592,12 @@ handleOp state (Ast.EOp _ op) =
         Ast.And _    -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
         Ast.Or _     -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
    in (state, ExprApplication (OperatorFunction op) funcSign [], emptyInstructions, [])
+
+-- TODO: Unfinished Monad-ise
+handleVarFunctionSt :: String -> FunctionSignature -> State LanxSt (ExprReturn, Instructions, StackInst)
+handleVarFunctionSt name fs = state $ \s ->
+  let (s', er, i, si) = handleVarFunction s name fs
+   in ((er, i, si), s')
 
 handleVarFunction :: LanxSt -> String -> FunctionSignature -> (LanxSt, ExprReturn, Instructions,  StackInst)
 handleVarFunction state name (returnType, args) =
@@ -585,6 +623,12 @@ handleVarFunction state name (returnType, args) =
             -- case findResult state (ResultFunction name ) of {}
             _ -> error "Not implemented function"
 
+-- TODO: Unfinished Monad-ise
+handleVarSt :: Type -> BS.ByteString -> State LanxSt (ExprReturn, Instructions, StackInst)
+handleVarSt t1 n = state $ \s ->
+  let (s', er,i,si) = handleVar s t1 n
+   in ((er,i,si), s')
+
 handleVar :: LanxSt -> Type-> BS.ByteString -> (LanxSt, ExprReturn, Instructions, StackInst)
 handleVar state t1 n =
   let dType = typeConvert t1
@@ -607,6 +651,12 @@ handleVar state t1 n =
    in (state3, var, inst, stackInst)
   --  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
 
+-- TODO: Unfinished Monad-ise
+handleAppSt :: Expr -> Expr -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleAppSt e1 e2 = state $ \s ->
+  let (s', er,i,vi,si) = handleApp s e1 e2
+   in ((er,i,vi,si), s')
+
 handleApp :: LanxSt -> Expr -> Expr -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
 handleApp state e1 e2 =
   let (state1, var1, inst1, varInst1,stackInst1) = generateExpr state e1
@@ -628,6 +678,12 @@ handleApp state e1 e2 =
                 (l, r) | l > r -> error "Too many arguments"
         _ -> error (show var1 ++ show var2)
    in (state4, var3, inst1 +++ inst2 +++ inst3, varInst1++varInst2++varInst3 ,stackInst1 ++ stackInst2 ++ stackInst3)
+
+-- TODO: Unfinished Monad-ise
+handleConstructorSt :: DataType -> DataType -> [Variable] -> State LanxSt (ExprReturn, Instructions, StackInst)
+handleConstructorSt et ft args = state $ \s ->
+  let (s', er,i,si) = handleConstructor s et ft args
+   in ((er,i,si),s')
 
 handleConstructor :: LanxSt -> DataType -> DataType -> [Variable] -> (LanxSt, ExprReturn, Instructions, StackInst)
 handleConstructor state returnType functionType args =
