@@ -93,7 +93,7 @@ data ResultType
   | ResultCustom String -- done
   deriving (Show, Eq, Ord)
 
-data State = State
+data LanxSt = LanxSt
   { idCount :: Int,
     idMap :: ResultMap,
     env :: Env,
@@ -198,7 +198,7 @@ emptyInstructions =
     , functionFields = []
     }
 
-findResult :: State -> ResultType -> Maybe ExprReturn
+findResult :: LanxSt -> ResultType -> Maybe ExprReturn
 findResult s key = 
   case key of 
     ResultVariable ((envs, envType), name, varType) ->  -- find variable up to the mother env
@@ -220,7 +220,7 @@ findResult s key =
     _ -> Map.lookup key (idMap s)
 
 
-insertResult :: State -> ResultType -> Maybe ExprReturn -> (State, ExprReturn)
+insertResult :: LanxSt -> ResultType -> Maybe ExprReturn -> (LanxSt, ExprReturn)
 insertResult state key Nothing =
   case findResult state key of
     Just existingResult -> (state, existingResult)
@@ -238,7 +238,7 @@ insertResult state key (Just value) =
        in (updatedState, value)
 
 -- Helper function to generate a new entry for the IdType
-generateEntry :: State -> ResultType -> (ResultMap, ExprReturn, Int)
+generateEntry :: LanxSt -> ResultType -> (ResultMap, ExprReturn, Int)
 generateEntry state key =
   let currentMap = idMap state
       currentCount = idCount state
@@ -269,14 +269,14 @@ generateEntry state key =
               result = ExprResult var
            in (Map.insert key result currentMap, result, currentCount)
 
-searchTypeId :: State -> DataType -> OpId
+searchTypeId :: LanxSt -> DataType -> OpId
 searchTypeId s dt = case findResult s (ResultDataType dt) of
   Just x -> case x of
     ExprResult (id, _) -> id
     _ -> error (show dt ++ " type not found")
   Nothing -> error (show dt ++ " type not found")
 
-generateType :: State -> DataType -> (State, OpId, Instructions)
+generateType :: LanxSt -> DataType -> (LanxSt, OpId, Instructions)
 generateType state dType =
   case findResult state (ResultDataType dType) of
     Just (ExprResult (typeId, _)) -> (state, typeId, emptyInstructions)
@@ -339,7 +339,7 @@ dtypeof (LUint _)  = uint32
 dtypeof (LInt _)   = int32
 dtypeof (LFloat _) = float32
 
-generateConst :: State -> Literal -> (State, OpId, Instructions)
+generateConst :: LanxSt -> Literal -> (LanxSt, OpId, Instructions)
 generateConst state v =
   let dtype = dtypeof v
       (state', typeId, typeInst) = generateType state dtype
@@ -348,7 +348,7 @@ generateConst state v =
       inst = typeInst{constFields = constFields typeInst ++ constInstruction}
    in (state'', constId, inst)
 
-generateNegOp :: State -> Variable -> (State, Variable, StackInst)
+generateNegOp :: LanxSt -> Variable -> (LanxSt, Variable, StackInst)
 generateNegOp state v =
   let id = Id (idCount state + 1)
       (e, t, typeId) = (fst v, snd v, searchTypeId state (snd v))
@@ -369,7 +369,7 @@ generateNegOp state v =
       result = (id, t)
    in (state', result, inst)
 
-generateBinOp :: State -> Variable -> Ast.Op (Range, Type) -> Variable -> (State, Variable, Instructions, StackInst)
+generateBinOp :: LanxSt -> Variable -> Ast.Op (Range, Type) -> Variable -> (LanxSt, Variable, Instructions, StackInst)
 generateBinOp state v1 op v2 =
   let (e1, t1, typeId1) = (fst v1, snd v1, searchTypeId state (snd v1))
       (e2, t2, typeId2) = (fst v2, snd v2, searchTypeId state (snd v2))
@@ -427,7 +427,7 @@ generateBinOp state v1 op v2 =
           _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
    in (state', (id, resultType), emptyInstructions, [instruction])
 
-generateExpr :: State -> Expr -> (State, ExprReturn, Instructions,VariableInst, StackInst)
+generateExpr :: LanxSt -> Expr -> (LanxSt, ExprReturn, Instructions,VariableInst, StackInst)
 generateExpr state expr =
   case expr of
     Ast.EBool _ x         -> let (s,v,i,si) = handleConst state (LBool x)  in (s, v, i, [], si)
@@ -447,7 +447,7 @@ generateExpr state expr =
     Ast.EOp _ _           -> let (s,v,i,si) = handleOp state expr in (s, v, i, [], si)
     Ast.ELetIn _ decs e   -> handleLetIn state decs e
 
-handleLetIn :: State -> [Dec] -> Expr -> (State, ExprReturn, Instructions, VariableInst, StackInst)
+handleLetIn :: LanxSt -> [Dec] -> Expr -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
 handleLetIn state decs e =
   let 
     (envs, envType )= env state
@@ -462,12 +462,12 @@ handleLetIn state decs e =
     -- in error (show decs)
 
 
-handleConst :: State -> Literal -> (State, ExprReturn, Instructions, StackInst)
+handleConst :: LanxSt -> Literal -> (LanxSt, ExprReturn, Instructions, StackInst)
 handleConst state lit =
   let (s, id, inst) = generateConst state lit
    in (s, ExprResult (id, dtypeof lit), inst,[])
-
-handleArray :: State -> [Expr] -> (State, ExprReturn, Instructions, VariableInst, StackInst)
+  
+handleArray :: LanxSt -> [Expr] -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
 handleArray state l =
   let len = length l
       (state1, results, inst, var ,stackInst) =
@@ -483,7 +483,7 @@ handleArray state l =
       (state2, typeId, typeInst) = generateType state1 (DTypeArray len DTypeUnknown)
    in error "Not implemented array"
 
-handleOp :: State -> Expr -> (State, ExprReturn, Instructions, StackInst)
+handleOp :: LanxSt -> Expr -> (LanxSt, ExprReturn, Instructions, StackInst)
 handleOp state (Ast.EOp _ op) =
   let funcSign = case op of
         Ast.Plus _   -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
@@ -500,7 +500,7 @@ handleOp state (Ast.EOp _ op) =
         Ast.Or _     -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
    in (state, ExprApplication (OperatorFunction op) funcSign [], emptyInstructions, [])
 
-handleVarFunction :: State -> String -> FunctionSignature -> (State, ExprReturn, Instructions,  StackInst)
+handleVarFunction :: LanxSt -> String -> FunctionSignature -> (LanxSt, ExprReturn, Instructions,  StackInst)
 handleVarFunction state name (returnType, args) =
   let result = findResult state (ResultFunction name (returnType, args))
    in case result of
@@ -524,7 +524,7 @@ handleVarFunction state name (returnType, args) =
             -- case findResult state (ResultFunction name ) of {}
             _ -> error "Not implemented function"
 
-handleVar :: State -> Type-> BS.ByteString -> (State, ExprReturn, Instructions, StackInst)
+handleVar :: LanxSt -> Type-> BS.ByteString -> (LanxSt, ExprReturn, Instructions, StackInst)
 handleVar state t1 n =
   let dType = typeConvert t1
       (state3, var, inst, stackInst) = case dType of
@@ -546,7 +546,7 @@ handleVar state t1 n =
    in (state3, var, inst, stackInst)
   --  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
 
-handleApp :: State -> Expr -> Expr -> (State, ExprReturn, Instructions, VariableInst, StackInst)
+handleApp :: LanxSt -> Expr -> Expr -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
 handleApp state e1 e2 =
   let (state1, var1, inst1, varInst1,stackInst1) = generateExpr state e1
       (state2, var2, inst2, varInst2,stackInst2) = generateExpr state1 e2
@@ -568,7 +568,7 @@ handleApp state e1 e2 =
         _ -> error (show var1 ++ show var2)
    in (state4, var3, inst1 +++ inst2 +++ inst3, varInst1++varInst2++varInst3 ,stackInst1 ++ stackInst2 ++ stackInst3)
 
-handleConstructor :: State -> DataType -> DataType -> [Variable] -> (State, ExprReturn, Instructions, StackInst)
+handleConstructor :: LanxSt -> DataType -> DataType -> [Variable] -> (LanxSt, ExprReturn, Instructions, StackInst)
 handleConstructor state returnType functionType args =
   let (state1, typeId, inst) = generateType state returnType
       state2 = state1{idCount = idCount state1 + 1}
@@ -576,7 +576,7 @@ handleConstructor state returnType functionType args =
       stackInst = [returnedInstruction (returnId) ( OpCompositeConstruct typeId (ShowList (map fst args)))]
    in (state2, ExprResult (returnId, returnType), inst, stackInst)
 
-handleExtract :: State -> DataType -> [Int] -> Variable -> (State, ExprReturn, Instructions, StackInst)
+handleExtract :: LanxSt -> DataType -> [Int] -> Variable -> (LanxSt, ExprReturn, Instructions, StackInst)
 handleExtract state returnType i var =
   let (state1, typeId, inst) = generateType state returnType
       state2 = state1{idCount = idCount state1 + 1}
@@ -584,7 +584,7 @@ handleExtract state returnType i var =
       stackInst = [returnedInstruction (returnId) ( OpCompositeExtract typeId (fst var) (ShowList i))]
    in (state2, ExprResult (returnId, returnType), inst, stackInst)
 
-applyFunction :: State -> OpId -> DataType -> [Variable] -> (State, ExprReturn, Instructions,VariableInst, StackInst)
+applyFunction :: LanxSt -> OpId -> DataType -> [Variable] -> (LanxSt, ExprReturn, Instructions,VariableInst, StackInst)
 applyFunction state id returnType args =
   do
     let (state1, typeIds, inst1) =
@@ -619,7 +619,7 @@ applyFunction state id returnType args =
     -- state' = state {idCount = idCount state + 1}
     (state2, ExprResult (resultId, returnType), inst1, varInst,stackInst')
 
-handleIfThenElse :: State -> Expr -> Expr -> Expr -> (State, ExprReturn, Instructions, VariableInst, StackInst)
+handleIfThenElse :: LanxSt -> Expr -> Expr -> Expr -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
 handleIfThenElse state e1 e2 e3 =
   let (state1, ExprResult var1, inst1,varInst1, stackInst1) = generateExpr state e1
       (state2, var2, inst2,varInst2, stackInst2) = generateExpr state1 e2
@@ -641,20 +641,20 @@ handleIfThenElse state e1 e2 e3 =
 
 -- error "Not implemented if then else"
 
-handleNeg :: State -> Expr -> (State, ExprReturn, Instructions,VariableInst ,StackInst)
+handleNeg :: LanxSt -> Expr -> (LanxSt, ExprReturn, Instructions,VariableInst ,StackInst)
 handleNeg state e =
   let (state1, ExprResult var, inst1,varInst1, stackInst1) = generateExpr state e
       (state2, var', stackInst2) = generateNegOp state1 var
    in (state2, ExprResult var', inst1,varInst1 ,stackInst1 ++ stackInst2)
 
-handleBinOp :: State -> Expr -> Ast.Op (Range, Type) -> Expr -> (State, ExprReturn, Instructions,VariableInst, StackInst)
+handleBinOp :: LanxSt -> Expr -> Ast.Op (Range, Type) -> Expr -> (LanxSt, ExprReturn, Instructions,VariableInst, StackInst)
 handleBinOp state e1 op e2 =
   let (state1, ExprResult var1, inst1,varInst1, stackInst1) = generateExpr state e1
       (state2, ExprResult var2, inst2,varInst2, stackInst2) = generateExpr state1 e2
       (state3, var3, inst3, stackInst3) = generateBinOp state2 var1 op var2
    in (state3, ExprResult var3, inst1 +++ inst2 +++ inst3,varInst1++varInst2, stackInst1 ++ stackInst2 ++ stackInst3)
 
-generateDec :: State -> Dec -> (State, Instructions, VariableInst, StackInst)
+generateDec :: LanxSt -> Dec -> (LanxSt, Instructions, VariableInst, StackInst)
 generateDec state (Ast.DecAnno _ name t) = (state, emptyInstructions, [],[])
 generateDec state (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
   let varType = typeConvert t
@@ -664,7 +664,7 @@ generateDec state (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
       (state4, _) = insertResult state3 (ResultVariableValue (env state3, BS.unpack name, varType)) (Just result)
     in (state4, inst1 +++ inst2,varInst, stackInst)
 
-generateInit :: Config -> [Dec] -> (State, Instructions)
+generateInit :: Config -> [Dec] -> (LanxSt, Instructions)
 generateInit cfg decs = 
   do
     let startId = 0
@@ -678,7 +678,7 @@ generateInit cfg decs =
             , sourceInst        = Just $ noReturnInstruction $ uncurry OpSource (source cfg)
             }
     let state0 =
-          State
+          LanxSt
             { idCount = startId + 1
             , idMap = Map.empty
             , env = ([entryPoint cfg], DTypeVoid)
@@ -696,7 +696,7 @@ generateInit cfg decs =
             }
     (state1, inst)
 
-generateUniforms :: State -> Config -> [Argument] -> (State, Instructions)
+generateUniforms :: LanxSt -> Config -> [Argument] -> (LanxSt, Instructions)
 generateUniforms state config arg =
   do
     let (_, uniforms) =
@@ -762,7 +762,7 @@ generateUniforms state config arg =
 
 -- error (show (env state') ++ show uniforms')
 
-generateFunctionParam :: State -> [Ast.Argument (Range, Type)] -> (State, Instructions, [Instruction])
+generateFunctionParam :: LanxSt -> [Ast.Argument (Range, Type)] -> (LanxSt, Instructions, [Instruction])
 generateFunctionParam state arg =
   do
     let vars =
@@ -786,7 +786,7 @@ generateFunctionParam state arg =
 
 -- error (show (env state') ++ show vars)
 
-generateFunction :: (State, Instructions) -> Dec -> (State, OpId, Instructions)
+generateFunction :: (LanxSt, Instructions) -> Dec -> (LanxSt, OpId, Instructions)
 generateFunction (state, inst) (Ast.DecAnno _ name t) = (state, IdName "", inst)
 generateFunction (state, inst) (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
   do
@@ -818,7 +818,7 @@ generateFunction (state, inst) (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     -- (state'''', ExprResult var, typeInst, inst') = generateExpr state''' e
     (state7, funcId, inst5)
 
-generateMainFunction :: (State, Instructions) -> Config -> Dec -> (State, Instructions)
+generateMainFunction :: (LanxSt, Instructions) -> Config -> Dec -> (LanxSt, Instructions)
 generateMainFunction (state, inst) config (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
   do
     let (returnType, argsType) = (DTypeVoid, [])
