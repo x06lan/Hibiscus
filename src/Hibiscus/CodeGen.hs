@@ -617,7 +617,7 @@ handleVarFunction state name (returnType, args) =
               | name == "extract_3" -> if length args == 1 && return == float32 then (state, ExprApplication (TypeExtractor returnType [3]) (return, args) [], emptyInstructions, []) else error (name ++ ":" ++ show args)
               | True ->
                   let dec = fromMaybe (error (name ++ show args)) (findDec (decs state) name Nothing)
-                      (state', id, inst1) = generateFunction (state, emptyInstructions) dec
+                      ((id, inst1), state') = runState (generateFunctionSt emptyInstructions dec) state
                    in (state', ExprApplication (CustomFunction id name) (return, args) [], inst1, [])
                       -- error (show id ++ show (functionFields inst1))
             -- case findResult state (ResultFunction name ) of {}
@@ -885,7 +885,7 @@ generateFunctionParamSt args =
     extract (Ast.Argument (_, t) (Ast.Name _ name)) = (BS.unpack name, typeConvert t)
     aux :: (String, DataType) -> State LanxSt (Instructions, Instruction)
     aux (name, dType) = do
-      (typeId, inst1) <- generateTypeSt (DTypePointer Function dType)s
+      (typeId, inst1) <- generateTypeSt (DTypePointer Function dType)
       s' <- get
       er <- insertResultSt (ResultVariable (env s', name, dType)) Nothing
       let (ExprResult (id, _)) = er
@@ -897,37 +897,46 @@ generateFunctionParamSt args =
 
 -- error (show (env state') ++ show vars)
 
-generateFunction :: (LanxSt, Instructions) -> Dec -> (LanxSt, OpId, Instructions)
-generateFunction (state, inst) (Ast.DecAnno _ name t) = (state, IdName "", inst)
-generateFunction (state, inst) (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
+generateFunctionSt :: Instructions -> Dec -> State LanxSt (OpId, Instructions)
+generateFunctionSt inst (Ast.DecAnno _ name t) = return $ (IdName "", inst)
+generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
   do
+    state0 <- get
     let DTypeFunction returnType argsType = typeConvert t
     let functionType = DTypeFunction returnType argsType
-    let (state1, typeId, inst1) = generateType state functionType
 
-    let state2 = state1{env = ([BS.unpack name], functionType)}
+    (typeId, inst1) <- generateTypeSt functionType
+    modify (\s -> s{env = ([BS.unpack name], functionType)})
 
-    let (state3, ExprResult (funcId, funcType)) = insertResult state2 (ResultFunction (BS.unpack name) (returnType, argsType)) Nothing
-    let ((inst2, paramInst), state4) = runState (generateFunctionParamSt args) state3
-    let state5 = state4{idCount = idCount state4 + 1}
-    let labelId = Id (idCount state5)
-    let (state6, ExprResult (resultId, _), inst3,varInst, exprInst) = generateExpr state5 e  -- todo handle return variable are function
-    let state7 = state6{env = env state}
+    er <- insertResultSt (ResultFunction (BS.unpack name) (returnType, argsType)) Nothing
+    let ExprResult (funcId, funcType) = er
+
+    (inst2, paramInst) <- generateFunctionParamSt args
+
+    modify (\s -> s{idCount = idCount s + 1})
+
+    state5 <- get
+    let labelId = Id $ idCount state5
+
+    (er, inst3, varInst, exprInst) <- generateExprSt e
+    let ExprResult (resultId, _) = er
+
+    modify (\s -> s{env = env state0})
+
+    state7 <- get
     let returnTypeId = searchTypeId state7 returnType
 
     let funcInst = FunctionInst {
-      begin = [commentInstruction $ "function " ++ BS.unpack name, returnedInstruction (funcId) ( OpFunction returnTypeId None typeId)],
+      begin     = [commentInstruction $ "function " ++ BS.unpack name, returnedInstruction funcId (OpFunction returnTypeId None typeId)],
       parameter = paramInst,
-      label = [returnedInstruction (labelId) ( OpLabel)],
-      variable = varInst,
-      body = exprInst ++ [noReturnInstruction (OpReturnValue resultId)],
-      end = [noReturnInstruction (OpFunctionEnd)]
+      label     = [returnedInstruction labelId OpLabel],
+      variable  = varInst,
+      body      = exprInst ++ [noReturnInstruction $ OpReturnValue resultId],
+      end       = [noReturnInstruction OpFunctionEnd]
     }
     let inst4 = inst +++ inst1 +++ inst2 +++ inst3
-
     let inst5 = inst4{functionFields = functionFields inst4 ++ [funcInst]}
-    -- (state'''', ExprResult var, typeInst, inst') = generateExpr state''' e
-    (state7, funcId, inst5)
+    return (funcId, inst5)
 
 generateMainFunction :: (LanxSt, Instructions) -> Config -> Dec -> (LanxSt, Instructions)
 generateMainFunction (state, inst) config (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
