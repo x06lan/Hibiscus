@@ -162,7 +162,10 @@ data Instructions = Instructions
   }
   deriving (Show)
 
--- FIXME: this is actually not Monoid AFAIK. BE CAREFUL WHEN USE IT
+-- FIXME: AFAIK, Instructions don’t actually form a Monoid.
+--        However, since most folds are associative, I created this instance
+--        to leverage Monoid for folding, making it less mentally taxing to work with.
+--        USE WITH CAUTION.
 instance Semigroup Instructions where
   (<>) = (+++)
 instance Monoid Instructions where
@@ -236,23 +239,30 @@ findResult s key =
        in result
     _ -> Map.lookup key (idMap s)
 
+insertResultSt :: ResultType -> Maybe ExprReturn -> State LanxSt (ExprReturn)
+insertResultSt key maybeER = do
+  state <- get
+  case findResult state key of
+    Just existingResult -> return existingResult
+    Nothing ->
+      case maybeER of
+        Nothing -> generateEntrySt key
+        Just value -> do
+          let newMap = Map.insert key value (idMap state)
+          put $ state{idMap = newMap}
+          return value
 
 insertResult :: LanxSt -> ResultType -> Maybe ExprReturn -> (LanxSt, ExprReturn)
-insertResult state key Nothing =
-  case findResult state key of
-    Just existingResult -> (state, existingResult)
-    Nothing ->
-      let (newMap, newId, newCount) = generateEntry state key
-          updatedState = state{idMap = newMap, idCount = newCount}
-       in (updatedState, newId)
--- error (show key ++ " not found")
-insertResult state key (Just value) =
-  case findResult state key of
-    Just existingResult -> (state, existingResult)
-    Nothing ->
-      let newMap = Map.insert key value (idMap state)
-          updatedState = state{idMap = newMap}
-       in (updatedState, value)
+insertResult state key maybER =
+  let (v, s') = runState (insertResultSt key maybER) state
+   in (s', v)
+
+-- TODO: Unfinished monad-ise
+generateEntrySt :: ResultType -> State LanxSt (ExprReturn)
+generateEntrySt key = state $ \s ->
+  let (newMap, newId, newCount) = generateEntry s key
+      s' = s{idMap = newMap, idCount = newCount}
+  in (newId, s')
 
 -- Helper function to generate a new entry for the IdType
 generateEntry :: LanxSt -> ResultType -> (ResultMap, ExprReturn, Int)
@@ -321,7 +331,7 @@ generateType state dType =
     Just (ExprResult (typeId, _)) -> (state, typeId, emptyInstructions)
     Nothing ->
       let (inst, state1) = runState (generateTypeSt_aux1 dType) state
-          (state2, ExprResult (typeId, _)) = insertResult state1 (ResultDataType dType) Nothing
+          (ExprResult (typeId, _), state2) = runState (insertResultSt (ResultDataType dType) Nothing) state1
           searchTypeId' = searchTypeId state2
 
           (state3, inst3) = case dType of
