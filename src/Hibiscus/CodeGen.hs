@@ -20,6 +20,8 @@ import Hibiscus.Parser
 import Hibiscus.Typing
 import Control.Exception (handle)
 
+import Control.Monad.State.Lazy
+
 -- import Data.IntMap (fromList, foldlWithKey)
 
 ----- Instruction constructor helpers BEGIN -----
@@ -464,9 +466,17 @@ handleLetIn state decs e =
 
 handleConst :: LanxSt -> Literal -> (LanxSt, ExprReturn, Instructions, StackInst)
 handleConst state lit =
-  let (s, id, inst) = generateConst state lit
-   in (s, ExprResult (id, dtypeof lit), inst,[])
-  
+  let ((er, inst, si), s') = runState (handleConstSt lit) state
+   in (s', er, inst, si)
+
+handleConstSt :: Literal -> State LanxSt (ExprReturn, Instructions, StackInst)
+handleConstSt lit =
+  do
+    s <- get
+    let (s', id, inst) = generateConst s lit -- TODO: Unfinished monad-ize
+    put s'
+    return (ExprResult (id, dtypeof lit), inst,[])
+
 handleArray :: LanxSt -> [Expr] -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
 handleArray state l =
   let len = length l
