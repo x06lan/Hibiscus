@@ -13,7 +13,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.STRef (newSTRef)
 import Debug.Trace
-import Hibiscus.Asm
+import Hibiscus.Asm 
 import qualified Hibiscus.Ast as Ast
 import Hibiscus.Lexer
 import Hibiscus.Parser
@@ -21,6 +21,19 @@ import Hibiscus.Typing
 import Control.Exception (handle)
 
 -- import Data.IntMap (fromList, foldlWithKey)
+
+----- Instruction constructor helpers BEGIN -----
+
+noReturnInstruction :: Ops -> Instruction
+noReturnInstruction op = Instruction (Nothing, op)
+
+-- returnedInstruction :: ResultId -> Ops -> Instruction
+returnedInstruction id op = Instruction (Just id, op)
+
+commentInstruction :: String -> Instruction
+commentInstruction = noReturnInstruction . Comment
+
+----- Instruction constructor helpers END -------
 
 type Variable = (OpId, DataType)
 
@@ -110,7 +123,7 @@ emptyHeaderFields =
 
 fromHeaderFields :: HeaderFields -> [Instruction]
 fromHeaderFields hf =
-  [ Instruction (Nothing, Comment "header fields")
+  [ commentInstruction "header fields"
   , fromJust (capabilityInst hf)
   , fromJust (extensionInst hf)
   , fromJust (memoryModelInst hf)
@@ -287,29 +300,29 @@ generateType state dType =
 
           (state3, inst3) = case dType of
             DTypeUnknown -> error "Unknown type"
-            DTypeVoid -> (state2, emptyInstructions{typeFields = [Instruction (Just typeId, OpTypeVoid)]})
-            DTypeBool -> (state2, emptyInstructions{typeFields = [Instruction (Just typeId, OpTypeBool)]})
-            DTypeInt size -> (state2, emptyInstructions{typeFields = [Instruction (Just typeId, OpTypeInt size 0)]})
-            DTypeUInt size -> (state2, emptyInstructions{typeFields = [Instruction (Just typeId, OpTypeInt size 1)]})
-            DTypeFloat size -> (state2, emptyInstructions{typeFields = [Instruction (Just typeId, OpTypeFloat size)]})
-            DTypeVector size baseType -> (state2, emptyInstructions{typeFields = [Instruction (Just typeId, OpTypeVector (searchTypeId' baseType) size)]})
-            DTypeMatrix col baseType -> (state2, emptyInstructions{typeFields = [Instruction (Just typeId, OpTypeMatrix (searchTypeId' baseType) col)]})
+            DTypeVoid                 -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeVoid)]})
+            DTypeBool                 -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeBool)]})
+            DTypeInt size             -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeInt size 0)]})
+            DTypeUInt size            -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeInt size 1)]})
+            DTypeFloat size           -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeFloat size)]})
+            DTypeVector size baseType -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeVector (searchTypeId' baseType) size)]})
+            DTypeMatrix col baseType  -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeMatrix (searchTypeId' baseType) col)]})
             DTypeArray size baseType ->
               let (state4, constId, inst2) = generateConst state3 (LUint size)
-                  arrayInst = [Instruction (Just typeId, OpTypeArray (searchTypeId' baseType) constId)]
+                  arrayInst = [returnedInstruction typeId (OpTypeArray (searchTypeId' baseType) constId)]
                   inst3' = inst2{typeFields = typeFields inst2 ++ arrayInst}
                in (state4, inst3')
             DTypePointer storage DTypeVoid -> (state2, emptyInstructions)
             DTypePointer storage baseType ->
-              let pointerInst = [Instruction (Just typeId, OpTypePointer storage (searchTypeId' baseType))]
+              let pointerInst = [returnedInstruction typeId (OpTypePointer storage (searchTypeId' baseType))]
                   inst2' = emptyInstructions{typeFields = pointerInst}
                in (state2, inst2')
             DTypeStruct name baseTypes ->
-              let structInst = [Instruction (Just typeId, OpTypeStruct (ShowList (map searchTypeId' baseTypes)))]
+              let structInst = [returnedInstruction typeId (OpTypeStruct (ShowList (map searchTypeId' baseTypes)))]
                   inst2' = emptyInstructions{typeFields = structInst}
                in (state2, inst2')
             DTypeFunction returnType argTypes ->
-              let functionInst = [Instruction (Just typeId, OpTypeFunction (searchTypeId' returnType) (ShowList (map (searchTypeId' . DTypePointer Function) argTypes)))]
+              let functionInst = [returnedInstruction typeId (OpTypeFunction (searchTypeId' returnType) (ShowList (map (searchTypeId' . DTypePointer Function) argTypes)))]
                   inst2' = emptyInstructions{typeFields = functionInst}
                in (state2, inst2')
 
@@ -329,7 +342,7 @@ generateConst state v =
         LFloat _ -> DTypeFloat 32
       (state', typeId, typeInst) = generateType state dtype
       (state'', ExprResult (constId, dType)) = insertResult state' (ResultConstant v) Nothing
-      constInstruction = [Instruction (Just constId, OpConstant typeId v)]
+      constInstruction = [returnedInstruction constId (OpConstant typeId v)]
       inst = typeInst{constFields = constFields typeInst ++ constInstruction}
    in (state'', constId, inst)
 
@@ -345,11 +358,11 @@ generateNegOp state v =
         case t of
           t
             | t == bool ->
-                [Instruction (Just id, OpLogicalNot typeId e)]
+                [returnedInstruction id (OpLogicalNot typeId e)]
             | t == int32 ->
-                [Instruction (Just id, OpSNegate typeId e)]
+                [returnedInstruction id (OpSNegate typeId e)]
             | t == float32 ->
-                [Instruction (Just id, OpFNegate typeId e)]
+                [returnedInstruction id (OpFNegate typeId e)]
           _ -> error ("not support neg of " ++ show t)
       result = (id, t)
    in (state', result, inst)
@@ -368,47 +381,47 @@ generateBinOp state v1 op v2 =
           (t1, t2)
             | t1 == bool && t2 == bool ->
                 case op of
-                  Ast.Eq _ -> (bool, Instruction (Just id, OpLogicalEqual typeId1 e1 e2))
-                  Ast.Neq _ -> (bool, Instruction (Just id, OpLogicalNotEqual typeId1 e1 e2))
-                  Ast.And _ -> (bool, Instruction (Just id, OpLogicalAnd typeId1 e1 e2))
-                  Ast.Or _ -> (bool, Instruction (Just id, OpLogicalOr typeId1 e1 e2))
+                  Ast.Eq _ -> (bool, returnedInstruction (id) ( OpLogicalEqual typeId1 e1 e2))
+                  Ast.Neq _ -> (bool, returnedInstruction (id) ( OpLogicalNotEqual typeId1 e1 e2))
+                  Ast.And _ -> (bool, returnedInstruction (id) ( OpLogicalAnd typeId1 e1 e2))
+                  Ast.Or _ -> (bool, returnedInstruction (id) ( OpLogicalOr typeId1 e1 e2))
             | t1 == int32 && t2 == int32 ->
                 case op of
-                  Ast.Plus _ -> (int32, Instruction (Just id, OpIAdd typeId1 e1 e2))
-                  Ast.Minus _ -> (int32, Instruction (Just id, OpISub typeId1 e1 e2))
-                  Ast.Times _ -> (int32, Instruction (Just id, OpIMul typeId1 e1 e2))
-                  Ast.Divide _ -> (int32, Instruction (Just id, OpSDiv typeId1 e1 e2))
-                  Ast.Eq _ -> (bool, Instruction (Just id, OpIEqual typeId1 e1 e2))
-                  Ast.Neq _ -> (bool, Instruction (Just id, OpINotEqual typeId1 e1 e2))
-                  Ast.Lt _ -> (bool, Instruction (Just id, OpSLessThan typeId1 e1 e2))
-                  Ast.Le _ -> (bool, Instruction (Just id, OpSLessThanEqual typeId1 e1 e2))
-                  Ast.Gt _ -> (bool, Instruction (Just id, OpSGreaterThan typeId1 e1 e2))
-                  Ast.Ge _ -> (bool, Instruction (Just id, OpSGreaterThanEqual typeId1 e1 e2))
+                  Ast.Plus _ -> (int32, returnedInstruction (id) ( OpIAdd typeId1 e1 e2))
+                  Ast.Minus _ -> (int32, returnedInstruction (id) ( OpISub typeId1 e1 e2))
+                  Ast.Times _ -> (int32, returnedInstruction (id) ( OpIMul typeId1 e1 e2))
+                  Ast.Divide _ -> (int32, returnedInstruction (id) ( OpSDiv typeId1 e1 e2))
+                  Ast.Eq _ -> (bool, returnedInstruction (id) ( OpIEqual typeId1 e1 e2))
+                  Ast.Neq _ -> (bool, returnedInstruction (id) ( OpINotEqual typeId1 e1 e2))
+                  Ast.Lt _ -> (bool, returnedInstruction (id) ( OpSLessThan typeId1 e1 e2))
+                  Ast.Le _ -> (bool, returnedInstruction (id) ( OpSLessThanEqual typeId1 e1 e2))
+                  Ast.Gt _ -> (bool, returnedInstruction (id) ( OpSGreaterThan typeId1 e1 e2))
+                  Ast.Ge _ -> (bool, returnedInstruction (id) ( OpSGreaterThanEqual typeId1 e1 e2))
             | t1 == int32 && t2 == float32 -> error "Not implemented"
             | t1 == float32 && t2 == int32 -> error "Not implemented"
             | t1 == float32 && t2 == float32 ->
                 case op of
-                  Ast.Plus _ -> (float32, Instruction (Just id, OpFAdd typeId1 e1 e2))
-                  Ast.Minus _ -> (float32, Instruction (Just id, OpFSub typeId1 e1 e2))
-                  Ast.Times _ -> (float32, Instruction (Just id, OpFMul typeId1 e1 e2))
-                  Ast.Divide _ -> (float32, Instruction (Just id, OpFDiv typeId1 e1 e2))
-                  Ast.Eq _ -> (bool, Instruction (Just id, OpFOrdEqual typeId1 e1 e2))
-                  Ast.Neq _ -> (bool, Instruction (Just id, OpFOrdNotEqual typeId1 e1 e2))
-                  Ast.Lt _ -> (bool, Instruction (Just id, OpFOrdLessThan typeId1 e1 e2))
-                  Ast.Le _ -> (bool, Instruction (Just id, OpFOrdLessThanEqual typeId1 e1 e2))
-                  Ast.Gt _ -> (bool, Instruction (Just id, OpFOrdGreaterThan typeId1 e1 e2))
-                  Ast.Ge _ -> (bool, Instruction (Just id, OpFOrdGreaterThanEqual typeId1 e1 e2))
+                  Ast.Plus _ -> (float32, returnedInstruction (id) ( OpFAdd typeId1 e1 e2))
+                  Ast.Minus _ -> (float32, returnedInstruction (id) ( OpFSub typeId1 e1 e2))
+                  Ast.Times _ -> (float32, returnedInstruction (id) ( OpFMul typeId1 e1 e2))
+                  Ast.Divide _ -> (float32, returnedInstruction (id) ( OpFDiv typeId1 e1 e2))
+                  Ast.Eq _ -> (bool, returnedInstruction (id) ( OpFOrdEqual typeId1 e1 e2))
+                  Ast.Neq _ -> (bool, returnedInstruction (id) ( OpFOrdNotEqual typeId1 e1 e2))
+                  Ast.Lt _ -> (bool, returnedInstruction (id) ( OpFOrdLessThan typeId1 e1 e2))
+                  Ast.Le _ -> (bool, returnedInstruction (id) ( OpFOrdLessThanEqual typeId1 e1 e2))
+                  Ast.Gt _ -> (bool, returnedInstruction (id) ( OpFOrdGreaterThan typeId1 e1 e2))
+                  Ast.Ge _ -> (bool, returnedInstruction (id) ( OpFOrdGreaterThanEqual typeId1 e1 e2))
             | t1 == t2 && (t1 == vector2 || t1 == vector3 || t1 == vector4) ->
                 case op of
-                  Ast.Plus _ -> (t1, Instruction (Just id, OpFAdd typeId1 e1 e2))
-                  Ast.Minus _ -> (t1, Instruction (Just id, OpFSub typeId1 e1 e2))
-                  Ast.Times _ -> (t1, Instruction (Just id, OpFMul typeId1 e1 e2))
+                  Ast.Plus _ -> (t1, returnedInstruction (id) ( OpFAdd typeId1 e1 e2))
+                  Ast.Minus _ -> (t1, returnedInstruction (id) ( OpFSub typeId1 e1 e2))
+                  Ast.Times _ -> (t1, returnedInstruction (id) ( OpFMul typeId1 e1 e2))
             | (t1 == vector2 || t1 == vector3 || t1 == vector4) && (t2 == int32 || t2 == float32) ->
                 case op of
-                  Ast.Times _ -> (vector2, Instruction (Just id, OpVectorTimesScalar typeId1 e1 e2))
+                  Ast.Times _ -> (vector2, returnedInstruction (id) ( OpVectorTimesScalar typeId1 e1 e2))
             | (t1 == int32 || t1 == float32) && (t2 == vector2 || t2 == vector3 || t2 == vector4) ->
                 case op of
-                  Ast.Times _ -> (vector2, Instruction (Just id, OpVectorTimesScalar typeId1 e1 e2))
+                  Ast.Times _ -> (vector2, returnedInstruction (id) ( OpVectorTimesScalar typeId1 e1 e2))
           _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
    in (state', (id, resultType), emptyInstructions, [instruction])
 
@@ -524,7 +537,7 @@ handleVar state t1 n =
                     -- let ExprResult (varId, varType) = fromMaybe (error ("can find var:" ++ show (env state, BS.unpack n, dType))) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
                     let ExprResult (varId, varType) = fromMaybe (error (show (idMap state))) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
                         (state2, ExprResult (valueId, _)) = insertResult state (ResultVariableValue (env state, BS.unpack n, dType)) Nothing
-                        inst = [Instruction (Just valueId, OpLoad (searchTypeId state2 varType) varId)]
+                        inst = [returnedInstruction (valueId) ( OpLoad (searchTypeId state2 varType) varId)]
                     in (state2, ExprResult (valueId, varType), emptyInstructions, inst)
   --  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
    in (state3, var, inst, stackInst)
@@ -557,7 +570,7 @@ handleConstructor state returnType functionType args =
   let (state1, typeId, inst) = generateType state returnType
       state2 = state1{idCount = idCount state1 + 1}
       returnId = Id (idCount state2) -- handle type convert
-      stackInst = [Instruction (Just returnId, OpCompositeConstruct typeId (ShowList (map fst args)))]
+      stackInst = [returnedInstruction (returnId) ( OpCompositeConstruct typeId (ShowList (map fst args)))]
    in (state2, ExprResult (returnId, returnType), inst, stackInst)
 
 handleExtract :: State -> DataType -> [Int] -> Variable -> (State, ExprReturn, Instructions, StackInst)
@@ -565,7 +578,7 @@ handleExtract state returnType i var =
   let (state1, typeId, inst) = generateType state returnType
       state2 = state1{idCount = idCount state1 + 1}
       returnId = Id (idCount state2)
-      stackInst = [Instruction (Just returnId, OpCompositeExtract typeId (fst var) (ShowList i))]
+      stackInst = [returnedInstruction (returnId) ( OpCompositeExtract typeId (fst var) (ShowList i))]
    in (state2, ExprResult (returnId, returnType), inst, stackInst)
 
 applyFunction :: State -> OpId -> DataType -> [Variable] -> (State, ExprReturn, Instructions,VariableInst, StackInst)
@@ -590,15 +603,15 @@ applyFunction state id returnType args =
                  in
                   ( id + 1
                   , vars ++ [(varId, t)]
-                  , acc ++[Instruction (Just varId, OpVariable typeId Function)]
-                  , acc1 ++ [ Instruction (Nothing, OpStore varId (fst t))]
+                  , acc ++[returnedInstruction (varId) ( OpVariable typeId Function)]
+                  , acc1 ++ [noReturnInstruction (OpStore varId (fst t))]
                   )
             )
             (idCount state1 + 1, [],[], [])
             (zip typeIds args)
     let state2 = state1{idCount = ids}
     let resultId = Id (idCount state2)
-    let stackInst' = stackInst ++ [Instruction (Just resultId, OpFunctionCall (searchTypeId state returnType) id (ShowList (map fst vars)))]
+    let stackInst' = stackInst ++ [returnedInstruction (resultId) ( OpFunctionCall (searchTypeId state returnType) id (ShowList (map fst vars)))]
     -- (state', vars, typeInst, inst') = foldl (\(s, v, t, i) arg -> let (s', v', t', i') = functionPointer s arg in (s', v' : v, t ++ t', i ++ i')) (state, [], [], []) args
     -- state' = state {idCount = idCount state + 1}
     (state2, ExprResult (resultId, returnType), inst1, varInst,stackInst')
@@ -612,13 +625,13 @@ handleIfThenElse state e1 e2 e3 =
         (id, DTypeBool) -> id
         _ -> error "Expected bool"
       id = idCount state3
-      sInst1' = stackInst1 ++ [Instruction (Nothing, OpBranchConditional conditionId (Id (id + 1)) (Id (id + 2)))]
-      sInst2' = [Instruction (Just (Id (id + 1)), OpLabel)] ++ stackInst2 ++ [Instruction (Nothing, OpBranch (Id (id + 3)))]
+      sInst1' = stackInst1 ++ [noReturnInstruction (OpBranchConditional conditionId (Id (id + 1)) (Id (id + 2)))]
+      sInst2' = [returnedInstruction ((Id (id + 1))) ( OpLabel)] ++ stackInst2 ++ [noReturnInstruction ( OpBranch (Id (id + 3)))]
       sInst3' =
-        [Instruction (Just (Id (id + 2)), OpLabel)]
+        [returnedInstruction ((Id (id + 2))) ( OpLabel)]
           ++ stackInst3
-          ++ [Instruction (Nothing, OpBranch (Id (id + 3)))]
-          ++ [Instruction (Just (Id (id + 3)), OpLabel)]
+          ++ [noReturnInstruction (OpBranch (Id (id + 3)))]
+          ++ [returnedInstruction ((Id (id + 3))) ( OpLabel)]
       state4 = state3{idCount = id + 3}
    in -- todo handle return variable
       (state3, var3, inst1 +++ inst2 +++ inst3,varInst1++varInst2++varInst3, sInst1' ++ sInst2' ++ sInst3')
@@ -649,35 +662,33 @@ generateDec state (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
     in (state4, inst1 +++ inst2,varInst, stackInst)
 
 generateInit :: Config -> [Dec] -> (State, Instructions)
-generateInit h dec =
+generateInit cfg decs = 
   do
     let startId = 0
     let headInstruction =
-          emptyHeaderFields
-            { capabilityInst = Just $ Instruction (Nothing, OpCapability (capability h))
-            , extensionInst = Just $ Instruction (Just (Id (startId + 1)), OpExtInstImport (extension h))
-            , memoryModelInst = Just $ Instruction (Nothing, OpMemoryModel (addressModel h) (memoryModel h))
-            , -- , Instruction (Nothing, OpEntryPoint (shaderType h) (IdName (entryPoint h)) (entryPoint h) (ShowList ids))
-              executionModeInst = Just $ Instruction (Nothing, OpExecutionMode (IdName (entryPoint h)) (executionMode h))
-            , sourceInst = Just $ Instruction (Nothing, uncurry OpSource (source h))
+          HeaderFields
+            { capabilityInst    = Just $ noReturnInstruction $ OpCapability (capability cfg)
+            , extensionInst     = Just $ returnedInstruction (Id $ startId + 1) (OpExtInstImport (extension cfg))
+            , memoryModelInst   = Just $ noReturnInstruction $ OpMemoryModel (addressModel cfg) (memoryModel cfg)
+            , entryPointInst    = Nothing
+            , executionModeInst = Just $ noReturnInstruction $ OpExecutionMode (IdName . entryPoint $ cfg) (executionMode cfg)
+            , sourceInst        = Just $ noReturnInstruction $ uncurry OpSource (source cfg)
             }
-
-    -- let constInstruction = []
-    let state =
+    let state0 =
           State
             { idCount = startId + 1
             , idMap = Map.empty
-            , env = ([entryPoint h], DTypeVoid)
-            , decs = dec
+            , env = ([entryPoint cfg], DTypeVoid)
+            , decs = decs
             }
-    let (state1, _) = insertResult state (ResultCustom "ext ") (Just (ExprResult (Id 1, DTypeVoid))) -- ext
+    let (state1, _) = insertResult state0 (ResultCustom "ext ") (Just (ExprResult (Id 1, DTypeVoid))) -- ext
     let inst =
           Instructions
-            { headerFields = headInstruction
-            , nameFields = [Instruction (Nothing, Comment "Name fields")]
-            , uniformsFields = [Instruction (Nothing, Comment "uniform fields")]
-            , typeFields = [Instruction (Nothing, Comment "Type fields")]
-            , constFields = [Instruction (Nothing, Comment "Const fields")]
+            { headerFields   = headInstruction
+            , nameFields     = [commentInstruction "Name fields"]
+            , uniformsFields = [commentInstruction "uniform fields"]
+            , typeFields     = [commentInstruction "Type fields"]
+            , constFields    = [commentInstruction "Const fields"]
             , functionFields = []
             }
     (state1, inst)
@@ -705,9 +716,9 @@ generateUniforms state config arg =
           --         let (s1, typeId, inst1) = generateType s (DTypePointer storage dType)
           --         let (s2, ExprResult (id, _)) = insertResult s1 (ResultVariable (env s1, name, dType)) Nothing
 
-          --         let variableInstruction = Instruction (Just id, OpVariable typeId storage)
-          --         let nameInstruction = Instruction (Nothing, OpName id name)
-          --         let uniformsInstruction = Instruction (Nothing, OpDecorate id (Location location))
+          --         let variableInstruction = returnedInstruction (id) ( OpVariable typeId storage)
+          --         let nameInstruction = noReturnInstruction ( OpName id name)
+          --         let uniformsInstruction = noReturnInstruction ( OpDecorate id (Location location))
 
           --         let inst1' =
           --               inst1
@@ -725,9 +736,9 @@ generateUniforms state config arg =
                   let (s1, typeId, inst1) = generateType s (DTypePointer storage dType)
                   let (s2, ExprResult (id, _)) = insertResult s1 (ResultVariable (env s1, name, dType)) Nothing
 
-                  let variableInstruction = [Instruction (Just id, OpVariable typeId storage)]
-                  let nameInstruction = [Instruction (Nothing, OpName id name)]
-                  let uniformsInstruction = [Instruction (Nothing, OpDecorate id (Location location))]
+                  let variableInstruction = [returnedInstruction (id) ( OpVariable typeId storage)]
+                  let nameInstruction = [noReturnInstruction ( OpName id name)]
+                  let uniformsInstruction = [noReturnInstruction ( OpDecorate id (Location location))]
 
                   let inst1' =
                         inst1
@@ -742,7 +753,7 @@ generateUniforms state config arg =
             (state, emptyInstructions, [])
             uniforms'
     let hf = trace "test" $ headerFields inst
-    let hf' = hf{entryPointInst = Just $ Instruction (Nothing, OpEntryPoint (shaderType config) (IdName (entryPoint config)) (entryPoint config) (ShowList ids))}
+    let hf' = hf{entryPointInst = Just $ noReturnInstruction (OpEntryPoint (shaderType config) (IdName (entryPoint config)) (entryPoint config) (ShowList ids))}
     let inst1 = inst{headerFields = hf'}
     (state', inst1)
 
@@ -763,7 +774,7 @@ generateFunctionParam state arg =
             ( \(name, dType) (s, i, stackInst) ->
                 let (s', typeId, inst1) = generateType s (DTypePointer Function dType)
                     (s'', ExprResult (id, _)) = insertResult s' (ResultVariable (env s', name, dType)) Nothing
-                    paramInst = Instruction (Just id, OpFunctionParameter typeId)
+                    paramInst = returnedInstruction (id) ( OpFunctionParameter typeId)
                  in (s'', inst1 +++ i, paramInst : stackInst)
             )
             (state, emptyInstructions, [])
@@ -791,12 +802,12 @@ generateFunction (state, inst) (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     let returnTypeId = searchTypeId state7 returnType
 
     let funcInst = FunctionInst {
-      begin = [Instruction (Nothing, Comment ("function " ++ BS.unpack name)), Instruction (Just funcId, OpFunction returnTypeId None typeId)],
+      begin = [commentInstruction $ "function " ++ BS.unpack name, returnedInstruction (funcId) ( OpFunction returnTypeId None typeId)],
       parameter = paramInst,
-      label = [Instruction (Just labelId, OpLabel)],
+      label = [returnedInstruction (labelId) ( OpLabel)],
       variable = varInst,
-      body = exprInst ++ [Instruction (Nothing, OpReturnValue resultId)],
-      end = [Instruction (Nothing, OpFunctionEnd)]
+      body = exprInst ++ [noReturnInstruction (OpReturnValue resultId)],
+      end = [noReturnInstruction (OpFunctionEnd)]
     }
     let inst4 = inst +++ inst1 +++ inst2 +++ inst3
 
@@ -821,15 +832,15 @@ generateMainFunction (state, inst) config (Ast.Dec (_, t) (Ast.Name (_, _) name)
 
     -- ExprResult (varId, _) = fromMaybe (error "cant find var :outColor") (findResult state5 (ResultVariableValue (env state5, "outColor", vector4)))
     let ExprResult (varId, _) = fromMaybe (error (show (env state5))) (findResult state5 (ResultVariable (env state5, "outColor", vector4)))
-    let saveInst = [Instruction (Nothing, OpStore varId resultId)]
+    let saveInst = [noReturnInstruction (OpStore varId resultId)]
 
     let funcInst = FunctionInst {
-      begin = [Instruction (Nothing, Comment ("function " ++ BS.unpack name)), Instruction (Just funcId, OpFunction returnTypeId None typeId)],
+      begin = [commentInstruction $ "function " ++ BS.unpack name, returnedInstruction (funcId) ( OpFunction returnTypeId None typeId)],
       parameter = [],
-      label = [Instruction (Just labelId, OpLabel)],
+      label = [returnedInstruction (labelId) ( OpLabel)],
       variable = varInst,
-      body = exprInst ++ [Instruction (Nothing, OpReturn)],
-      end = [Instruction (Nothing, OpFunctionEnd)]
+      body = exprInst ++ [noReturnInstruction (OpReturn)],
+      end = [noReturnInstruction (OpFunctionEnd)]
     }
 
     let inst4 = inst +++ inst1 +++ inst2 +++ inst3
