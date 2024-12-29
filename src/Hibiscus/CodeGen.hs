@@ -270,11 +270,6 @@ insertResultSt key maybeER = do
           put $ state{idMap = newMap}
           return value
 
-insertResult :: LanxSt -> ResultType -> Maybe ExprReturn -> (LanxSt, ExprReturn)
-insertResult state key maybER =
-  let (v, s') = runState (insertResultSt key maybER) state
-   in (s', v)
-
 generateEntrySt :: ResultType -> State LanxSt (ExprReturn)
 generateEntrySt key = state $ \s ->
   let (newMap, newId, newCount) = generateEntry s key
@@ -352,7 +347,7 @@ generateTypeSt_aux2 dType typeId = state $ \state2 ->
       DTypeVector size baseType -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeVector (searchTypeId' baseType) size)]})
       DTypeMatrix col baseType  -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeMatrix (searchTypeId' baseType) col)]})
       DTypeArray size baseType ->
-        let (state4, constId, inst2) = generateConst state3 (LUint size)
+        let ((constId, inst2), state4) = runState (generateConstSt (LUint size)) state3
             arrayInst = [returnedInstruction typeId (OpTypeArray (searchTypeId' baseType) constId)]
             inst3' = inst2{typeFields = typeFields inst2 ++ arrayInst}
           in (state4, inst3')
@@ -390,11 +385,6 @@ generateTypeSt dType = do
       inst3 <- generateTypeSt_aux2 dType typeId
       return (typeId, inst +++ inst3)
 
-generateType :: LanxSt -> DataType -> (LanxSt, OpId, Instructions)
-generateType state dType =
-  let ((id, inst), s') = runState (generateTypeSt dType) state
-   in (s', id, inst)
-
 generateConstSt :: Literal -> State LanxSt (OpId, Instructions)
 generateConstSt v = do
   let dtype = dtypeof v
@@ -404,11 +394,6 @@ generateConstSt v = do
   let constInstruction = [returnedInstruction constId (OpConstant typeId v)]
   let inst = typeInst{constFields = constFields typeInst ++ constInstruction}
   return (constId, inst)
-
-generateConst :: LanxSt -> Literal -> (LanxSt, OpId, Instructions)
-generateConst state v =
-  let ((id, inst), s') = runState (generateConstSt v) state
-   in (s', id, inst)
 
 generateNegOpSt :: Variable -> State LanxSt (Variable, StackInst)
 generateNegOpSt v = state $ \state ->
@@ -430,11 +415,6 @@ generateNegOpSt v = state $ \state ->
           _ -> error ("not support neg of " ++ show t)
       result = (id, t)
    in ((result, inst), state')
-
-generateNegOp :: LanxSt -> Variable -> (LanxSt, Variable, StackInst)
-generateNegOp state v =
-  let ((result, inst), s') = runState (generateNegOpSt v) state
-   in (s', result, inst)
 
 -- TODO: Unfinished Monad-ise
 generateBinOpSt :: Variable -> Ast.Op (Range, Type) -> Variable -> State LanxSt (Variable, Instructions, StackInst)
@@ -509,9 +489,9 @@ generateExprSt e = state $ \s ->
 generateExpr :: LanxSt -> Expr -> (LanxSt, ExprReturn, Instructions,VariableInst, StackInst)
 generateExpr state expr =
   case expr of
-    Ast.EBool _ x         -> let (s,v,i,si) = handleConst state (LBool x)  in (s, v, i, [], si)
-    Ast.EInt _ x          -> let (s,v,i,si) = handleConst state (LInt x)   in (s, v, i, [], si)
-    Ast.EFloat _ x        -> let (s,v,i,si) = handleConst state (LFloat x) in (s, v, i, [], si)
+    Ast.EBool _ x         -> let ((v,i,si), s) = runState (handleConstSt (LBool x)) state in (s, v, i, [], si)
+    Ast.EInt _ x          -> let ((v,i,si), s) = runState (handleConstSt (LInt x)) state in (s, v, i, [], si)
+    Ast.EFloat _ x        -> let ((v,i,si), s) = runState (handleConstSt (LFloat x)) state in (s, v, i, [], si)
     Ast.EList _ l         -> let ((er,i,vi,si),s) = runState (handleArraySt l) state in (s,er,i,vi,si)
     Ast.EPar _ e          -> generateExpr state e
     Ast.EVar (_, t1) (Ast.Name (_, _) name) ->
@@ -552,12 +532,6 @@ handleConstSt lit =
     (id, inst) <- generateConstSt lit
     return (ExprResult (id, dtypeof lit), inst,[])
 
-handleConst :: LanxSt -> Literal -> (LanxSt, ExprReturn, Instructions, StackInst)
-handleConst state lit =
-  let ((er, inst, si), s') = runState (handleConstSt lit) state
-   in (s', er, inst, si)
-
--- TODO: Unfinished Monad-ise
 handleArraySt :: [Expr] -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
 handleArraySt es =
   do
@@ -641,7 +615,7 @@ handleVar state t1 n =
                   Nothing ->
                     -- let ExprResult (varId, varType) = fromMaybe (error ("can find var:" ++ show (env state, BS.unpack n, dType))) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
                     let ExprResult (varId, varType) = fromMaybe (error (show (idMap state))) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
-                        (state2, ExprResult (valueId, _)) = insertResult state (ResultVariableValue (env state, BS.unpack n, dType)) Nothing
+                        (ExprResult (valueId, _), state2) = runState (insertResultSt (ResultVariableValue (env state, BS.unpack n, dType)) Nothing) state
                         inst = [returnedInstruction (valueId) ( OpLoad (searchTypeId state2 varType) varId)]
                     in (state2, ExprResult (valueId, varType), emptyInstructions, inst)
   --  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
@@ -684,7 +658,7 @@ handleConstructorSt et ft args = state $ \s ->
 
 handleConstructor :: LanxSt -> DataType -> DataType -> [Variable] -> (LanxSt, ExprReturn, Instructions, StackInst)
 handleConstructor state returnType functionType args =
-  let (state1, typeId, inst) = generateType state returnType
+  let ((typeId, inst), state1) = runState (generateTypeSt returnType) state
       state2 = state1{idCount = idCount state1 + 1}
       returnId = Id (idCount state2) -- handle type convert
       stackInst = [returnedInstruction (returnId) ( OpCompositeConstruct typeId (ShowList (map fst args)))]
@@ -692,7 +666,7 @@ handleConstructor state returnType functionType args =
 
 handleExtract :: LanxSt -> DataType -> [Int] -> Variable -> (LanxSt, ExprReturn, Instructions, StackInst)
 handleExtract state returnType i var =
-  let (state1, typeId, inst) = generateType state returnType
+  let ((typeId, inst), state1) = runState (generateTypeSt returnType) state
       state2 = state1{idCount = idCount state1 + 1}
       returnId = Id (idCount state2)
       stackInst = [returnedInstruction (returnId) ( OpCompositeExtract typeId (fst var) (ShowList i))]
@@ -753,7 +727,7 @@ handleIfThenElse state e1 e2 e3 =
 handleNeg :: LanxSt -> Expr -> (LanxSt, ExprReturn, Instructions,VariableInst ,StackInst)
 handleNeg state e =
   let (state1, ExprResult var, inst1,varInst1, stackInst1) = generateExpr state e
-      (state2, var', stackInst2) = generateNegOp state1 var
+      ((var', stackInst2), state2) = runState (generateNegOpSt var) state1
    in (state2, ExprResult var', inst1,varInst1 ,stackInst1 ++ stackInst2)
 
 handleBinOp :: LanxSt -> Expr -> Ast.Op (Range, Type) -> Expr -> (LanxSt, ExprReturn, Instructions,VariableInst, StackInst)
