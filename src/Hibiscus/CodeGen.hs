@@ -675,8 +675,7 @@ handleExtract state returnType i var =
 applyFunctionSt_aux1 :: (OpId, (OpId, b)) -> State LanxSt ([(OpId, (OpId, b))], [Instruction], [Instruction])
 applyFunctionSt_aux1 (typeId, t) =
   do
-    s <- get
-    let id = idCount s
+    id <- gets idCount
     let varId = IdName ("param_" ++ show id)
     modify (\s -> s{idCount = idCount s + 1})
     return (
@@ -687,7 +686,7 @@ applyFunctionSt_aux1 (typeId, t) =
 applyFunctionSt :: OpId -> DataType -> [Variable] -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
 applyFunctionSt id returnType args =
   do
-    state0 <- get
+    searchTypeId_state0_returnType <- gets (\s -> searchTypeId s returnType) -- FIXME: please rename this
 
     let makeAssociative (id, inst) = ([id], inst)
     (typeIds, inst1) <- foldMaprM (fmap makeAssociative . generateTypeSt . DTypePointer Function . snd) args
@@ -695,9 +694,8 @@ applyFunctionSt id returnType args =
     modify (\s -> s{idCount = idCount s + 1})
     (vars, varInst, stackInst) <- foldMaplM applyFunctionSt_aux1 $ zip typeIds args
 
-    state2 <- get
-    let resultId = Id (idCount state2)
-    let stackInst' = returnedInstruction (resultId) (OpFunctionCall (searchTypeId state0 returnType) id (ShowList (map fst vars)))
+    resultId <- gets (Id . idCount)
+    let stackInst' = returnedInstruction (resultId) (OpFunctionCall (searchTypeId_state0_returnType) id (ShowList (map fst vars)))
     -- (state', vars, typeInst, inst') = foldl (\(s, v, t, i) arg -> let (s', v', t', i') = functionPointer s arg in (s', v' : v, t ++ t', i ++ i')) (state, [], [], []) args
     -- state' = state {idCount = idCount state + 1}
     return (ExprResult (resultId, returnType), inst1, varInst, stackInst ++ [stackInst'])
@@ -744,10 +742,10 @@ generateDecSt (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
     let varType = typeConvert t
     (typeId, inst1) <- generateTypeSt varType
     (result, inst2, varInst, stackInst) <- generateExprSt e
-    state2 <- get
-    _ <- insertResultSt (ResultVariable (env state2, BS.unpack name, varType)) (Just result)
-    state3 <- get
-    _ <- insertResultSt (ResultVariableValue (env state3, BS.unpack name, varType)) (Just result)
+    env_state2 <- gets env
+    _ <- insertResultSt (ResultVariable (env_state2, BS.unpack name, varType)) (Just result)
+    env_state3 <- gets env
+    _ <- insertResultSt (ResultVariableValue (env_state3, BS.unpack name, varType)) (Just result)
     return (inst1 +++ inst2, varInst, stackInst)
 
 generateInitSt :: Config -> [Dec] -> State LanxSt (Instructions)
@@ -786,8 +784,8 @@ generateUniformsSt_aux1 (name, dType, storage, location) =
   do
     (typeId, inst1) <- generateTypeSt (DTypePointer storage dType)
 
-    s1 <- get
-    _er <- insertResultSt (ResultVariable (env s1, name, dType)) Nothing
+    env_s1 <- gets env
+    _er <- insertResultSt (ResultVariable (env_s1, name, dType)) Nothing
     let ExprResult (id, _) = _er
 
     let variableInstruction = [returnedInstruction id (OpVariable typeId storage)]
@@ -825,8 +823,8 @@ generateFunctionParamSt args =
     aux :: (String, DataType) -> State LanxSt (Instructions, Instruction)
     aux (name, dType) = do
       (typeId, inst1) <- generateTypeSt (DTypePointer Function dType)
-      s' <- get
-      er <- insertResultSt (ResultVariable (env s', name, dType)) Nothing
+      env_s' <- gets env
+      er <- insertResultSt (ResultVariable (env_s', name, dType)) Nothing
       let (ExprResult (id, _)) = er
       let paramInst = returnedInstruction (id) (OpFunctionParameter typeId)
       return (inst1, paramInst)
@@ -840,7 +838,7 @@ generateFunctionSt :: Instructions -> Dec -> State LanxSt (OpId, Instructions)
 generateFunctionSt inst (Ast.DecAnno _ name t) = return $ (IdName "", inst)
 generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
   do
-    state0 <- get
+    env_state0 <- gets env
     let DTypeFunction returnType argsType = typeConvert t
     let functionType = DTypeFunction returnType argsType
 
@@ -854,16 +852,14 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
 
     modify (\s -> s{idCount = idCount s + 1})
 
-    state5 <- get
-    let labelId = Id $ idCount state5
+    labelId <- gets (Id . idCount)
 
     (er, inst3, varInst, exprInst) <- generateExprSt e
     let ExprResult (resultId, _) = er
 
-    modify (\s -> s{env = env state0})
+    modify (\s -> s{env = env_state0})
 
-    state7 <- get
-    let returnTypeId = searchTypeId state7 returnType
+    returnTypeId <- gets (\s -> searchTypeId s returnType)
 
     let funcInst = FunctionInst {
       begin     = [commentInstruction $ "function " ++ BS.unpack name, returnedInstruction funcId (OpFunction returnTypeId None typeId)],
@@ -889,8 +885,7 @@ generateMainFunctionSt inst cfg (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     let ExprResult (funcId, _) = _er
 
     modify (\s -> s{idCount = idCount s + 1, env = ([BS.unpack name], functionType)})
-    state3 <- get
-    let labelId = Id (idCount state3)
+    labelId <- gets (Id . idCount)
 
     inst2 <- generateUniformsSt cfg args
     (_er, inst3, varInst ,exprInst) <- generateExprSt e
