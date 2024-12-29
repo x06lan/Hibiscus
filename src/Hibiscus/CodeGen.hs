@@ -22,21 +22,16 @@ import Control.Exception (handle)
 
 import qualified Hibiscus.Type4plus as TI -- type infer
 
-import Data.Foldable (foldlM, foldrM)
 import Control.Monad.State.Lazy
+import Data.Monoid (First(..), getFirst)
+
+import Hibiscus.Util (foldMaplM, foldMaprM)
+
 
 -- IDK why this is not imported from Asm
 type ResultId = OpId
 
 -- import Data.IntMap (fromList, foldlWithKey)
-
-foldMapM :: (Foldable t, Monad m, Monoid b) => (a -> m b) -> t a -> m b
-foldMapM f = foldr aux (return mempty)
-  where
-    aux a mbcc = do
-      b <- f a
-      bcc <- mbcc
-      return $ b <> bcc
 
 ----- Instruction constructor helpers BEGIN -----
 
@@ -232,26 +227,35 @@ emptyInstructions =
     , functionFields = []
     }
 
+findResult' :: ResultType -> ResultMap -> Maybe ExprReturn
+findResult' (ResultVariable ((envs, envType), name, varType)) viIdMap = -- find variable up to the mother env
+  let param = (viIdMap, envType, name, varType)
+   in getFirst . fst $ runState (foldMaplM (aux param) envs) []
+  where
+    aux :: (ResultMap, DataType, String, DataType) -> String -> State [String] (First ExprReturn)
+    aux (viIdMap, envType, name, varType) env =
+      do
+        acc_env <- get
+        let result = Map.lookup (ResultVariable ((acc_env++[env], envType), name, varType)) viIdMap
+        put (acc_env ++ [env])
+        return $ First result
+findResult' (ResultVariableValue ((envs, envType), name, varType)) viIdMap = -- find variable up to the mother env
+  let param = (viIdMap, envType, name, varType)
+   in getFirst . fst $ runState (foldMaplM (aux param) envs) []
+  where
+    aux :: (ResultMap, DataType, String, DataType) -> String -> State [String] (First ExprReturn)
+    aux (viIdMap, envType, name, varType) env =
+      do
+        acc_env <- get
+        let result = Map.lookup (ResultVariableValue ((acc_env++[env], envType), name, varType)) viIdMap
+        put (acc_env ++ [env])
+        return $ First result
+findResult' key viIdMap = Map.lookup key viIdMap
+
 findResult :: LanxSt -> ResultType -> Maybe ExprReturn
 findResult s key = 
-  case key of 
-    ResultVariable ((envs, envType), name, varType) ->  -- find variable up to the mother env
-      let 
-        (result,envs') = foldl (\(acc_result ,acc_env) env -> 
-          case acc_result of 
-            Just x -> (Just x, acc_env)
-            Nothing -> (Map.lookup (ResultVariable ((acc_env++[env], envType), name, varType)) (idMap s), acc_env++[env])
-          ) (Nothing,[]) envs
-       in result
-    ResultVariableValue ((envs, envType), name, varType) ->  -- find variable up to the mother env
-      let 
-        (result,envs') = foldl (\(acc_result ,acc_env) env -> 
-          case acc_result of 
-            Just x -> (Just x, acc_env)
-            Nothing -> (Map.lookup (ResultVariableValue ((acc_env++[env], envType), name, varType)) (idMap s), acc_env++[env])
-          ) (Nothing,[]) envs
-       in result
-    _ -> Map.lookup key (idMap s)
+  let viIdMap = idMap s -- very important idMap
+   in findResult' key viIdMap
 
 insertResultSt :: ResultType -> Maybe ExprReturn -> State LanxSt (ExprReturn)
 insertResultSt key maybeER = do
@@ -329,8 +333,8 @@ generateTypeSt_aux1 dType = do
     DTypeMatrix _ baseType  -> do (_, inst) <- generateTypeSt baseType; return inst
     DTypeArray _ baseType   -> do (_, inst) <- generateTypeSt baseType; return inst
     DTypePointer _ baseType -> do (_, inst) <- generateTypeSt baseType; return inst
-    DTypeStruct _ fields              -> foldMapM (\field -> do (_, inst) <- generateTypeSt field;                     return inst) fields
-    DTypeFunction returnType argsType -> foldMapM (\t ->     do (_, inst) <- generateTypeSt (DTypePointer Function t); return inst) (returnType : argsType)
+    DTypeStruct _ fields              -> foldMaplM (\field -> do (_, inst) <- generateTypeSt field;                     return inst) fields
+    DTypeFunction returnType argsType -> foldMaplM (\t ->     do (_, inst) <- generateTypeSt (DTypePointer Function t); return inst) (returnType : argsType)
 
 generateTypeSt_aux2 :: DataType -> ResultId -> State LanxSt (Instructions)
 generateTypeSt_aux2 dType typeId = state $ \state2 ->
@@ -508,7 +512,7 @@ generateExpr state expr =
     Ast.EBool _ x         -> let (s,v,i,si) = handleConst state (LBool x)  in (s, v, i, [], si)
     Ast.EInt _ x          -> let (s,v,i,si) = handleConst state (LInt x)   in (s, v, i, [], si)
     Ast.EFloat _ x        -> let (s,v,i,si) = handleConst state (LFloat x) in (s, v, i, [], si)
-    Ast.EList _ l         -> handleArray state l
+    Ast.EList _ l         -> let ((er,i,vi,si),s) = runState (handleArraySt l) state in (s,er,i,vi,si)
     Ast.EPar _ e          -> generateExpr state e
     Ast.EVar (_, t1) (Ast.Name (_, _) name) ->
                              let (s,v,i,si) = handleVar state t1 name in (s, v, i, [], si)
@@ -533,7 +537,7 @@ handleLetIn state decs e =
   let 
     (envs, envType )= env state
     state1 = state {env = (envs++["letIn"], envType)}
-    ((inst, varInst, stackInst), state2) = runState (foldMapM generateDecSt decs) state1
+    ((inst, varInst, stackInst), state2) = runState (foldMaplM generateDecSt decs) state1
     (state3, result, inst1,varInst2 ,stackInst1) = generateExpr state2 e
 
     state4 = state3 {env = (envs, envType)}
@@ -555,25 +559,13 @@ handleConst state lit =
 
 -- TODO: Unfinished Monad-ise
 handleArraySt :: [Expr] -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
-handleArraySt es = state $ \s ->
-  let (s', er, i,vi,si) = handleArray s es
-   in ((er, i,vi,si), s')
-
-handleArray :: LanxSt -> [Expr] -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
-handleArray state l =
-  let len = length l
-      (state1, results, inst, var ,stackInst) =
-        -- FIXME: unsure what to modify here
-        foldl
-          ( \(s, acc, acc1, acc2,acc3) e ->
-              let (s', r, i, var ,si) = generateExpr s e in (s', acc ++ [r], acc1 +++ i,acc2 ++var ,acc3++ si)
-          )
-          (state, [], emptyInstructions, [],[])
-          l
-      -- (state2, typeId, typeInst) = generateType state1 (DTypeArray len baseTypeId)
-
-      (state2, typeId, typeInst) = generateType state1 (DTypeArray len DTypeUnknown)
-   in error "Not implemented array"
+handleArraySt es =
+  do
+    let len = length es
+    let makeAssociative (a,b,c,d) = ([a],b,c,d)
+    (results, inst, var ,stackInst) <- foldMaplM (fmap makeAssociative .generateExprSt) es
+    (typeId, typeInst) <- generateTypeSt (DTypeArray len DTypeUnknown)
+    error "Not implemented array"
 
 -- TODO: Unfinished Monad-ise
 handleOpSt :: Expr -> State LanxSt (ExprReturn, Instructions, StackInst)
@@ -674,7 +666,7 @@ handleApp state e1 e2 =
               functionType = DTypeFunction returnType argTypes
            in case (length args', length argTypes) of
                 (l, r) | l == r -> case funcType of
-                  CustomFunction id s -> applyFunction state2 id returnType args'
+                  CustomFunction id s -> let ((er,is,vi,st), s') = runState (applyFunctionSt id returnType args') state2 in (s', er, is, vi, st)
                   TypeConstructor t -> let (s,v,i,si) = handleConstructor state2 t functionType args' in (s,v,i,[],si)
                   TypeExtractor t int -> let (s,v,i,si)=  handleExtract state2 t int (head args') in (s,v,i,[],si)
                   OperatorFunction op -> error "Not implemented" -- todo
@@ -706,40 +698,35 @@ handleExtract state returnType i var =
       stackInst = [returnedInstruction (returnId) ( OpCompositeExtract typeId (fst var) (ShowList i))]
    in (state2, ExprResult (returnId, returnType), inst, stackInst)
 
-applyFunction :: LanxSt -> OpId -> DataType -> [Variable] -> (LanxSt, ExprReturn, Instructions,VariableInst, StackInst)
-applyFunction state id returnType args =
+applyFunctionSt_aux1 :: (OpId, (OpId, b)) -> State LanxSt ([(OpId, (OpId, b))], [Instruction], [Instruction])
+applyFunctionSt_aux1 (typeId, t) =
   do
-    let (state1, typeIds, inst1) =
-          foldr
-            ( ( \t (s, acc, acc1) ->
-                  let (s', id, inst) = generateType s t in (s', id : acc, inst +++ acc1)
-              )
-                . DTypePointer Function
-                . snd
-            )
-            (state, [], emptyInstructions)
-            args
-    let (ids, vars,varInst, stackInst) =
-          -- FIXME: unsure what to modify here
-          foldl
-            ( \(id, vars, acc,acc1) (typeId, t) ->
-                let
-                  varId = IdName ("param_" ++ show id)
-                 in
-                  ( id + 1
-                  , vars ++ [(varId, t)]
-                  , acc ++[returnedInstruction (varId) ( OpVariable typeId Function)]
-                  , acc1 ++ [noReturnInstruction (OpStore varId (fst t))]
-                  )
-            )
-            (idCount state1 + 1, [],[], [])
-            (zip typeIds args)
-    let state2 = state1{idCount = ids}
+    s <- get
+    let id = idCount s
+    let varId = IdName ("param_" ++ show id)
+    modify (\s -> s{idCount = idCount s + 1})
+    return (
+      [(varId, t)],
+      [returnedInstruction (varId) (OpVariable typeId Function)],
+      [noReturnInstruction (OpStore varId (fst t))])
+
+applyFunctionSt :: OpId -> DataType -> [Variable] -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+applyFunctionSt id returnType args =
+  do
+    state0 <- get
+
+    let makeAssociative (id, inst) = ([id], inst)
+    (typeIds, inst1) <- foldMaprM (fmap makeAssociative . generateTypeSt . DTypePointer Function . snd) args
+
+    modify (\s -> s{idCount = idCount s + 1})
+    (vars, varInst, stackInst) <- foldMaplM applyFunctionSt_aux1 $ zip typeIds args
+
+    state2 <- get
     let resultId = Id (idCount state2)
-    let stackInst' = stackInst ++ [returnedInstruction (resultId) ( OpFunctionCall (searchTypeId state returnType) id (ShowList (map fst vars)))]
+    let stackInst' = returnedInstruction (resultId) (OpFunctionCall (searchTypeId state0 returnType) id (ShowList (map fst vars)))
     -- (state', vars, typeInst, inst') = foldl (\(s, v, t, i) arg -> let (s', v', t', i') = functionPointer s arg in (s', v' : v, t ++ t', i ++ i')) (state, [], [], []) args
     -- state' = state {idCount = idCount state + 1}
-    (state2, ExprResult (resultId, returnType), inst1, varInst,stackInst')
+    return (ExprResult (resultId, returnType), inst1, varInst, stackInst ++ [stackInst'])
 
 handleIfThenElse :: LanxSt -> Expr -> Expr -> Expr -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
 handleIfThenElse state e1 e2 e3 =
@@ -848,7 +835,7 @@ generateUniformsSt cfg args =
     let uniforms = fmap (\((n, t), i) -> (n, t, Input, i)) $ zip nntOfArgs [0..]
     let uniforms' = ("outColor", vector4, Output, 0) : uniforms -- todo handle custom output
 
-    (inst, ids) <- foldMapM generateUniformsSt_aux1 uniforms'
+    (inst, ids) <- foldMaplM generateUniformsSt_aux1 uniforms'
 
     let hf = trace "test" $ headerFields inst
     let hf' = hf{entryPointInst = Just $ noReturnInstruction (OpEntryPoint (shaderType cfg) (IdName (entryPoint cfg)) (entryPoint cfg) (ShowList ids))}
@@ -871,7 +858,7 @@ generateFunctionParamSt args =
       return (inst1, paramInst)
     makeAssociative (is, i) = (is, [i]) -- it's a anti-optimised move, but making less mentally taxing
   in do
-    foldMapM (fmap makeAssociative . aux) . fmap getNameAndDType $ args
+    foldMaplM (fmap makeAssociative . aux) . fmap getNameAndDType $ args
 
 -- error (show (env state') ++ show vars)
 
