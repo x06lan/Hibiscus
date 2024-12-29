@@ -16,3 +16,7 @@ foldMaplM f = foldlM aux mempty
     aux bcc a = do
       b <- f a
       return $ bcc <> b
+
+-- If you don't care about the process order of the monad (state)
+foldMapM :: (Foldable t, Monad m, Monoid b) => (a -> m b) -> t a -> m b
+foldMapM = foldMaplM
