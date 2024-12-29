@@ -60,6 +60,9 @@ type Dec = Ast.Dec (Range, Type)
 type Expr = Ast.Expr (Range, Type)
 type Argument = Ast.Argument (Range, Type)
 
+getNameAndDType :: Argument -> (String, DataType)
+getNameAndDType (Ast.Argument (_, t) (Ast.Name _ name)) = (BS.unpack name, typeConvert t)
+
 type FunctionSignature = (DataType, [DataType]) -- return type, arguments
 
 type Env = ([String], DataType) -- function name, function type
@@ -530,7 +533,7 @@ handleLetIn state decs e =
   let 
     (envs, envType )= env state
     state1 = state {env = (envs++["letIn"], envType)}
-    (state2, inst, varInst, stackInst) = foldr (\dec (s, acc, acc1, acc2) -> let (s', i, vi, si) = generateDec s dec in (s', acc +++ i, acc1 ++ vi, acc2 ++ si)) (state1, emptyInstructions, [], []) decs
+    ((inst, varInst, stackInst), state2) = runState (foldMapM generateDecSt decs) state1
     (state3, result, inst1,varInst2 ,stackInst1) = generateExpr state2 e
 
     state4 = state3 {env = (envs, envType)}
@@ -773,18 +776,21 @@ handleBinOp state e1 op e2 =
       (state3, var3, inst3, stackInst3) = generateBinOp state2 var1 op var2
    in (state3, ExprResult var3, inst1 +++ inst2 +++ inst3,varInst1++varInst2, stackInst1 ++ stackInst2 ++ stackInst3)
 
-generateDec :: LanxSt -> Dec -> (LanxSt, Instructions, VariableInst, StackInst)
-generateDec state (Ast.DecAnno _ name t) = (state, emptyInstructions, [],[])
-generateDec state (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
-  let varType = typeConvert t
-      (state1, typeId, inst1) = generateType state varType
-      (state2, result, inst2,varInst, stackInst) = generateExpr state1 e
-      (state3, _) = insertResult state2 (ResultVariable (env state2, BS.unpack name, varType)) (Just result)
-      (state4, _) = insertResult state3 (ResultVariableValue (env state3, BS.unpack name, varType)) (Just result)
-    in (state4, inst1 +++ inst2,varInst, stackInst)
+generateDecSt :: Dec -> State LanxSt (Instructions, VariableInst, StackInst)
+generateDecSt (Ast.DecAnno _ name t) = return mempty
+generateDecSt (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
+  do
+    let varType = typeConvert t
+    (typeId, inst1) <- generateTypeSt varType
+    (result, inst2, varInst, stackInst) <- generateExprSt e
+    state2 <- get
+    _ <- insertResultSt (ResultVariable (env state2, BS.unpack name, varType)) (Just result)
+    state3 <- get
+    _ <- insertResultSt (ResultVariableValue (env state3, BS.unpack name, varType)) (Just result)
+    return (inst1 +++ inst2, varInst, stackInst)
 
-generateInit :: Config -> [Dec] -> (LanxSt, Instructions)
-generateInit cfg decs = 
+generateInitSt :: Config -> [Dec] -> State LanxSt (Instructions)
+generateInitSt cfg decs = 
   do
     let startId = 0
     let headInstruction =
@@ -796,14 +802,13 @@ generateInit cfg decs =
             , executionModeInst = Just $ noReturnInstruction $ OpExecutionMode (IdName . entryPoint $ cfg) (executionMode cfg)
             , sourceInst        = Just $ noReturnInstruction $ uncurry OpSource (source cfg)
             }
-    let state0 =
-          LanxSt
+    put $ LanxSt
             { idCount = startId + 1
             , idMap = Map.empty
             , env = ([entryPoint cfg], DTypeVoid)
             , decs = decs
             }
-    let (state1, _) = insertResult state0 (ResultCustom "ext ") (Just (ExprResult (Id 1, DTypeVoid))) -- ext
+    _ <- insertResultSt (ResultCustom "ext ") (Just (ExprResult (Id 1, DTypeVoid))) -- ext
     let inst =
           Instructions
             { headerFields   = headInstruction
@@ -813,78 +818,49 @@ generateInit cfg decs =
             , constFields    = [commentInstruction "Const fields"]
             , functionFields = []
             }
-    (state1, inst)
+    return inst
 
-generateUniforms :: LanxSt -> Config -> [Argument] -> (LanxSt, Instructions)
-generateUniforms state config arg =
+generateUniformsSt_aux1 :: (String, DataType, StorageClass, Int) -> State LanxSt (Instructions, [ResultId]) 
+generateUniformsSt_aux1 (name, dType, storage, location) =
   do
-    let (_, uniforms) =
-          foldr
-            ( \(Ast.Argument (_, t) (Ast.Name _ name)) (i, acc) ->
-                let
-                  acc' = (BS.unpack name, typeConvert t, Input, i) : acc
-                 in
-                  (i + 1, acc')
-            )
-            (0, [])
-            arg
+    (typeId, inst1) <- generateTypeSt (DTypePointer storage dType)
+
+    s1 <- get
+    _er <- insertResultSt (ResultVariable (env s1, name, dType)) Nothing
+    let ExprResult (id, _) = _er
+
+    let variableInstruction = [returnedInstruction id (OpVariable typeId storage)]
+    let nameInstruction     = [noReturnInstruction (OpName id name)]
+    let uniformsInstruction = [noReturnInstruction (OpDecorate id (Location location))]
+
+    let inst1' =
+          inst1
+            { nameFields     = nameFields inst1     ++ nameInstruction
+            , uniformsFields = uniformsFields inst1 ++ uniformsInstruction
+            , constFields    = constFields inst1    ++ variableInstruction
+            }
+    return (inst1', [id]) -- it's a anti-optimised move, but making less mentally taxing
+
+generateUniformsSt :: Config -> [Argument] -> State LanxSt (Instructions)
+generateUniformsSt cfg args =
+  do
+    let nntOfArgs = fmap getNameAndDType args
+    let uniforms = fmap (\((n, t), i) -> (n, t, Input, i)) $ zip nntOfArgs [0..]
     let uniforms' = ("outColor", vector4, Output, 0) : uniforms -- todo handle custom output
-    let (state', inst, ids) =
-          -- FIXME: unsure what to modify here
-          --
-          -- foldr
-          --   ( \(name, dType, storage, location) (s, i, accId) ->
-          --       do
-          --         let (s1, typeId, inst1) = generateType s (DTypePointer storage dType)
-          --         let (s2, ExprResult (id, _)) = insertResult s1 (ResultVariable (env s1, name, dType)) Nothing
 
-          --         let variableInstruction = returnedInstruction (id) ( OpVariable typeId storage)
-          --         let nameInstruction = noReturnInstruction ( OpName id name)
-          --         let uniformsInstruction = noReturnInstruction ( OpDecorate id (Location location))
+    (inst, ids) <- foldMapM generateUniformsSt_aux1 uniforms'
 
-          --         let inst1' =
-          --               inst1
-          --                 { nameFields = nameInstruction : nameFields inst1
-          --                 , uniformsFields = uniformsInstruction : uniformsFields inst1
-          --                 , constFields = variableInstruction : constFields inst1
-          --                 }
-          --         let updatedInst = inst1' +++ i
-
-          --         (s2, updatedInst, id : accId)
-          --   )
-          foldl
-            ( \(s, i, accId) (name, dType, storage, location) ->
-                do
-                  let (s1, typeId, inst1) = generateType s (DTypePointer storage dType)
-                  let (s2, ExprResult (id, _)) = insertResult s1 (ResultVariable (env s1, name, dType)) Nothing
-
-                  let variableInstruction = [returnedInstruction (id) ( OpVariable typeId storage)]
-                  let nameInstruction = [noReturnInstruction ( OpName id name)]
-                  let uniformsInstruction = [noReturnInstruction ( OpDecorate id (Location location))]
-
-                  let inst1' =
-                        inst1
-                          { nameFields = nameFields inst1 ++ nameInstruction
-                          , uniformsFields = uniformsFields inst1 ++ uniformsInstruction
-                          , constFields = constFields inst1 ++ variableInstruction
-                          }
-                  let updatedInst = i +++ inst1'
-
-                  (s2, updatedInst, accId ++ [id])
-            )
-            (state, emptyInstructions, [])
-            uniforms'
     let hf = trace "test" $ headerFields inst
-    let hf' = hf{entryPointInst = Just $ noReturnInstruction (OpEntryPoint (shaderType config) (IdName (entryPoint config)) (entryPoint config) (ShowList ids))}
+    let hf' = hf{entryPointInst = Just $ noReturnInstruction (OpEntryPoint (shaderType cfg) (IdName (entryPoint cfg)) (entryPoint cfg) (ShowList ids))}
     let inst1 = inst{headerFields = hf'}
-    (state', inst1)
+
+    return inst1
 
 -- error (show (env state') ++ show uniforms')
 
 generateFunctionParamSt :: [Ast.Argument (Range, Type)] -> State LanxSt (Instructions, [Instruction])
 generateFunctionParamSt args =
   let 
-    extract (Ast.Argument (_, t) (Ast.Name _ name)) = (BS.unpack name, typeConvert t)
     aux :: (String, DataType) -> State LanxSt (Instructions, Instruction)
     aux (name, dType) = do
       (typeId, inst1) <- generateTypeSt (DTypePointer Function dType)
@@ -893,9 +869,9 @@ generateFunctionParamSt args =
       let (ExprResult (id, _)) = er
       let paramInst = returnedInstruction (id) (OpFunctionParameter typeId)
       return (inst1, paramInst)
-    shit (is, i) = (is, [i]) -- it's a anti-optimised move, but making less mentally taxing
+    makeAssociative (is, i) = (is, [i]) -- it's a anti-optimised move, but making less mentally taxing
   in do
-    foldMapM (fmap shit . aux) . fmap extract $ args
+    foldMapM (fmap makeAssociative . aux) . fmap getNameAndDType $ args
 
 -- error (show (env state') ++ show vars)
 
@@ -940,23 +916,28 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     let inst5 = inst4{functionFields = functionFields inst4 ++ [funcInst]}
     return (funcId, inst5)
 
-generateMainFunction :: (LanxSt, Instructions) -> Config -> Dec -> (LanxSt, Instructions)
-generateMainFunction (state, inst) config (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
+generateMainFunctionSt :: Instructions -> Config -> Dec -> State LanxSt Instructions
+generateMainFunctionSt inst cfg (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
   do
     let (returnType, argsType) = (DTypeVoid, [])
     let functionType = DTypeFunction returnType argsType
-    let (state1, typeId, inst1) = generateType state functionType
-    let (state2, ExprResult (funcId, _)) = insertResult state1 (ResultCustom "func ") (Just (ExprResult (IdName (BS.unpack name), functionType)))
 
-    let state3 = state2{idCount = idCount state2 + 1, env = ([BS.unpack name], functionType)}
+    (typeId, inst1) <- generateTypeSt functionType
+
+    _er <- insertResultSt (ResultCustom "func ") (Just (ExprResult (IdName (BS.unpack name), functionType)))
+    let ExprResult (funcId, _) = _er
+
+    modify (\s -> s{idCount = idCount s + 1, env = ([BS.unpack name], functionType)})
+    state3 <- get
     let labelId = Id (idCount state3)
 
-    let (state4, inst2) = generateUniforms state3 config args
-    let (state5, ExprResult (resultId, _), inst3,varInst ,exprInst) = generateExpr state4 e
+    inst2 <- generateUniformsSt cfg args
+    (_er, inst3, varInst ,exprInst) <- generateExprSt e
+    let (ExprResult (resultId, _)) = _er
+    state5 <- get
     let returnTypeId = searchTypeId state5 returnType
 
-    -- ExprResult (varId, _) = fromMaybe (error "cant find var :outColor") (findResult state5 (ResultVariableValue (env state5, "outColor", vector4)))
-    let ExprResult (varId, _) = fromMaybe (error (show (env state5))) (findResult state5 (ResultVariable (env state5, "outColor", vector4)))
+    let ExprResult (varId, _) = fromMaybe (error $ show $ env state5) (findResult state5 (ResultVariable (env state5, "outColor", vector4)))
     let saveInst = [noReturnInstruction (OpStore varId resultId)]
 
     let funcInst = FunctionInst {
@@ -970,7 +951,8 @@ generateMainFunction (state, inst) config (Ast.Dec (_, t) (Ast.Name (_, _) name)
 
     let inst4 = inst +++ inst1 +++ inst2 +++ inst3
     let inst5 = inst4{functionFields = functionFields inst4 ++ [funcInst]}
-    (state5, inst5)
+    return inst5
+
 
 findDec' :: String -> Maybe FunctionSignature -> [Dec] -> Maybe Dec
 findDec' name maybeFS = find' aux
@@ -1001,9 +983,8 @@ findDec decs n mfs = findDec' n mfs decs
 
 flattenFunctionInst :: FunctionInst -> [Instruction]
 flattenFunctionInst func =
-  do
-    let FunctionInst {begin, parameter, label, variable, body, end} = func
-    begin ++ parameter ++ label ++ variable ++ body ++ end
+ let FunctionInst {begin, parameter, label, variable, body, end} = func
+  in begin ++ parameter ++ label ++ variable ++ body ++ end
 
 instructionsToString :: Instructions -> String
 instructionsToString inst =
@@ -1021,9 +1002,12 @@ instructionsToString inst =
 generate :: Config -> [Dec] -> Instructions
 generate config decs =
   do
-    let init@(initState, inst) = generateInit config decs
-    let mainDec = findDec decs (entryPoint config) Nothing
-    let (state', inst') = generateMainFunction init config (fromJust mainDec)
+    let mainDec = fromJust $ findDec decs (entryPoint config) Nothing
+
+    let nomatterState = undefined
+    let (inst, initState) = runState (generateInitSt config decs) nomatterState
+    let (inst', state') = runState (generateMainFunctionSt inst config mainDec) initState
     -- (state3, _, inst2) = generateType initState (DTypePointer Input vector2)
+
     let finalInst = inst'
     finalInst
