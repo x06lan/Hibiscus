@@ -7,8 +7,9 @@ module Hibiscus.CodeGen where
 
 -- import qualified Data.Set as Set
 
+import Control.Exception (handle)
 import qualified Data.ByteString.Lazy.Char8 as BS
-import Data.List (intercalate, find)
+import Data.List (find, intercalate)
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.STRef (newSTRef)
@@ -18,15 +19,13 @@ import qualified Hibiscus.Ast as Ast
 import Hibiscus.Lexer
 import Hibiscus.Parser
 import Hibiscus.Typing
-import Control.Exception (handle)
 
 import qualified Hibiscus.Type4plus as TI -- type infer
 
 import Control.Monad.State.Lazy
-import Data.Monoid (First(..), getFirst)
+import Data.Monoid (First (..), getFirst)
 
 import Hibiscus.Util (foldMaplM, foldMaprM)
-
 
 -- IDK why this is not imported from Asm
 type ResultId = OpId
@@ -68,11 +67,10 @@ type ResultMap = Map.Map ResultType ExprReturn
 -- type ConstInst = [Instruction]
 -- type NameInst =[Instruction]
 -- type UniformsInst =[Instruction]
-type VariableInst= [Instruction]
-type StackInst= [Instruction]
+type VariableInst = [Instruction]
+type StackInst = [Instruction]
 
 type VeryImportantTuple = (ExprReturn, Instructions, VariableInst, StackInst)
-
 
 data Config = Config
   { capability :: Capability
@@ -110,10 +108,10 @@ data ResultType
   deriving (Show, Eq, Ord)
 
 data LanxSt = LanxSt
-  { idCount :: Int,
-    idMap :: ResultMap,
-    env :: Env,
-    decs :: [Dec]
+  { idCount :: Int
+  , idMap :: ResultMap
+  , env :: Env
+  , decs :: [Dec]
   }
   deriving (Show)
 
@@ -148,14 +146,15 @@ fromHeaderFields hf =
   , fromJust (sourceInst hf)
   ]
 
-data FunctionInst= FunctionInst{
-  begin :: [Instruction],
-  parameter :: [Instruction],
-  label :: [Instruction],
-  variable :: [Instruction],
-  body :: [Instruction],
-  end :: [Instruction]
-}deriving(Show)
+data FunctionInst = FunctionInst
+  { begin :: [Instruction]
+  , parameter :: [Instruction]
+  , label :: [Instruction]
+  , variable :: [Instruction]
+  , body :: [Instruction]
+  , end :: [Instruction]
+  }
+  deriving (Show)
 
 data Instructions = Instructions
   { headerFields :: HeaderFields -- HACK: Maybe
@@ -189,7 +188,6 @@ instance Monoid Instructions where
   mergeMaybe h Nothing = h
   mergeMaybe Nothing h = h
   mergeMaybe _ _ = error "fuck"
-
 
   merge :: HeaderFields -> HeaderFields -> HeaderFields
   merge hf1 hf2 =
@@ -230,32 +228,34 @@ emptyInstructions =
     }
 
 findResult' :: ResultType -> ResultMap -> Maybe ExprReturn
-findResult' (ResultVariable ((envs, envType), name, varType)) viIdMap = -- find variable up to the mother env
+findResult' (ResultVariable ((envs, envType), name, varType)) viIdMap =
+  -- find variable up to the mother env
   let param = (viIdMap, envType, name, varType)
    in getFirst . fst $ runState (foldMaplM (aux param) envs) []
-  where
-    aux :: (ResultMap, DataType, String, DataType) -> String -> State [String] (First ExprReturn)
-    aux (viIdMap, envType, name, varType) env =
-      do
-        acc_env <- get
-        let result = Map.lookup (ResultVariable ((acc_env++[env], envType), name, varType)) viIdMap
-        put (acc_env ++ [env])
-        return $ First result
-findResult' (ResultVariableValue ((envs, envType), name, varType)) viIdMap = -- find variable up to the mother env
+ where
+  aux :: (ResultMap, DataType, String, DataType) -> String -> State [String] (First ExprReturn)
+  aux (viIdMap, envType, name, varType) env =
+    do
+      acc_env <- get
+      let result = Map.lookup (ResultVariable ((acc_env ++ [env], envType), name, varType)) viIdMap
+      put (acc_env ++ [env])
+      return $ First result
+findResult' (ResultVariableValue ((envs, envType), name, varType)) viIdMap =
+  -- find variable up to the mother env
   let param = (viIdMap, envType, name, varType)
    in getFirst . fst $ runState (foldMaplM (aux param) envs) []
-  where
-    aux :: (ResultMap, DataType, String, DataType) -> String -> State [String] (First ExprReturn)
-    aux (viIdMap, envType, name, varType) env =
-      do
-        acc_env <- get
-        let result = Map.lookup (ResultVariableValue ((acc_env++[env], envType), name, varType)) viIdMap
-        put (acc_env ++ [env])
-        return $ First result
+ where
+  aux :: (ResultMap, DataType, String, DataType) -> String -> State [String] (First ExprReturn)
+  aux (viIdMap, envType, name, varType) env =
+    do
+      acc_env <- get
+      let result = Map.lookup (ResultVariableValue ((acc_env ++ [env], envType), name, varType)) viIdMap
+      put (acc_env ++ [env])
+      return $ First result
 findResult' key viIdMap = Map.lookup key viIdMap
 
 findResult :: LanxSt -> ResultType -> Maybe ExprReturn
-findResult s key = 
+findResult s key =
   let viIdMap = idMap s -- very important idMap
    in findResult' key viIdMap
 
@@ -297,7 +297,7 @@ generateEntry state key =
               result = ExprResult var
            in (Map.insert key result currentMap, result, currentCount)
         ResultVariable ((envs, envType), name, varType) ->
-          let var = (IdName (intercalate "_" (envs++[name])), varType)
+          let var = (IdName (intercalate "_" (envs ++ [name])), varType)
               result = ExprResult var
            in (Map.insert key result currentMap, result, currentCount)
         ResultVariableValue ((envName, envType), s, varType) ->
@@ -341,38 +341,38 @@ generateTypeSt_aux2 dType typeId = state $ \state2 ->
     -- IDK how this is possible, so I'll leave this magic in the box.
     (state3, inst3) = case dType of
       DTypeUnknown -> error "Unknown type"
-      DTypeVoid                 -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeVoid)]})
-      DTypeBool                 -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeBool)]})
-      DTypeInt size             -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeInt size 0)]})
-      DTypeUInt size            -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeInt size 1)]})
-      DTypeFloat size           -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeFloat size)]})
+      DTypeVoid -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeVoid)]})
+      DTypeBool -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeBool)]})
+      DTypeInt size -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeInt size 0)]})
+      DTypeUInt size -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeInt size 1)]})
+      DTypeFloat size -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeFloat size)]})
       DTypeVector size baseType -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeVector (searchTypeId' baseType) size)]})
-      DTypeMatrix col baseType  -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeMatrix (searchTypeId' baseType) col)]})
+      DTypeMatrix col baseType -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeMatrix (searchTypeId' baseType) col)]})
       DTypeArray size baseType ->
         let ((constId, inst2), state4) = runState (generateConstSt (LUint size)) state3
             arrayInst = [returnedInstruction typeId (OpTypeArray (searchTypeId' baseType) constId)]
             inst3' = inst2{typeFields = typeFields inst2 ++ arrayInst}
-          in (state4, inst3')
+         in (state4, inst3')
       DTypePointer storage DTypeVoid -> (state2, emptyInstructions)
       DTypePointer storage baseType ->
         let pointerInst = [returnedInstruction typeId (OpTypePointer storage (searchTypeId' baseType))]
             inst2' = emptyInstructions{typeFields = pointerInst}
-          in (state2, inst2')
+         in (state2, inst2')
       DTypeStruct name baseTypes ->
         let structInst = [returnedInstruction typeId (OpTypeStruct (ShowList (map searchTypeId' baseTypes)))]
             inst2' = emptyInstructions{typeFields = structInst}
-          in (state2, inst2')
+         in (state2, inst2')
       DTypeFunction returnType argTypes ->
         let functionInst = [returnedInstruction typeId (OpTypeFunction (searchTypeId' returnType) (ShowList (map (searchTypeId' . DTypePointer Function) argTypes)))]
             inst2' = emptyInstructions{typeFields = functionInst}
-          in (state2, inst2')
+         in (state2, inst2')
 
     updatedState =
       state3
         { idCount = idCount state3
         , idMap = idMap state3
         }
-  in
+   in
     (inst3, updatedState)
 
 generateTypeSt :: DataType -> State LanxSt (OpId, Instructions)
@@ -381,8 +381,8 @@ generateTypeSt dType = do
   case findResult state (ResultDataType dType) of
     Just (ExprResult (typeId, _)) -> return (typeId, emptyInstructions)
     Nothing -> do
-      inst  <- generateTypeSt_aux1 dType
-      _er   <- insertResultSt (ResultDataType dType) Nothing
+      inst <- generateTypeSt_aux1 dType
+      _er  <- insertResultSt (ResultDataType dType) Nothing
       let (ExprResult (typeId, _)) = _er
       inst3 <- generateTypeSt_aux2 dType typeId
       return (typeId, inst +++ inst3)
@@ -438,51 +438,51 @@ generateBinOp state v1@(e1, t1) op v2@(e2, t2) =
           (t1, t2)
             | t1 == bool && t2 == bool ->
                 case op of
-                  Ast.Eq _ -> (bool, returnedInstruction (id) ( OpLogicalEqual typeId1 e1 e2))
-                  Ast.Neq _ -> (bool, returnedInstruction (id) ( OpLogicalNotEqual typeId1 e1 e2))
-                  Ast.And _ -> (bool, returnedInstruction (id) ( OpLogicalAnd typeId1 e1 e2))
-                  Ast.Or _ -> (bool, returnedInstruction (id) ( OpLogicalOr typeId1 e1 e2))
+                  Ast.Eq _ -> (bool, returnedInstruction (id) (OpLogicalEqual typeId1 e1 e2))
+                  Ast.Neq _ -> (bool, returnedInstruction (id) (OpLogicalNotEqual typeId1 e1 e2))
+                  Ast.And _ -> (bool, returnedInstruction (id) (OpLogicalAnd typeId1 e1 e2))
+                  Ast.Or _ -> (bool, returnedInstruction (id) (OpLogicalOr typeId1 e1 e2))
             | t1 == int32 && t2 == int32 ->
                 case op of
-                  Ast.Plus _ -> (int32, returnedInstruction (id) ( OpIAdd typeId1 e1 e2))
-                  Ast.Minus _ -> (int32, returnedInstruction (id) ( OpISub typeId1 e1 e2))
-                  Ast.Times _ -> (int32, returnedInstruction (id) ( OpIMul typeId1 e1 e2))
-                  Ast.Divide _ -> (int32, returnedInstruction (id) ( OpSDiv typeId1 e1 e2))
-                  Ast.Eq _ -> (bool, returnedInstruction (id) ( OpIEqual typeId1 e1 e2))
-                  Ast.Neq _ -> (bool, returnedInstruction (id) ( OpINotEqual typeId1 e1 e2))
-                  Ast.Lt _ -> (bool, returnedInstruction (id) ( OpSLessThan typeId1 e1 e2))
-                  Ast.Le _ -> (bool, returnedInstruction (id) ( OpSLessThanEqual typeId1 e1 e2))
-                  Ast.Gt _ -> (bool, returnedInstruction (id) ( OpSGreaterThan typeId1 e1 e2))
-                  Ast.Ge _ -> (bool, returnedInstruction (id) ( OpSGreaterThanEqual typeId1 e1 e2))
+                  Ast.Plus _ -> (int32, returnedInstruction (id) (OpIAdd typeId1 e1 e2))
+                  Ast.Minus _ -> (int32, returnedInstruction (id) (OpISub typeId1 e1 e2))
+                  Ast.Times _ -> (int32, returnedInstruction (id) (OpIMul typeId1 e1 e2))
+                  Ast.Divide _ -> (int32, returnedInstruction (id) (OpSDiv typeId1 e1 e2))
+                  Ast.Eq _ -> (bool, returnedInstruction (id) (OpIEqual typeId1 e1 e2))
+                  Ast.Neq _ -> (bool, returnedInstruction (id) (OpINotEqual typeId1 e1 e2))
+                  Ast.Lt _ -> (bool, returnedInstruction (id) (OpSLessThan typeId1 e1 e2))
+                  Ast.Le _ -> (bool, returnedInstruction (id) (OpSLessThanEqual typeId1 e1 e2))
+                  Ast.Gt _ -> (bool, returnedInstruction (id) (OpSGreaterThan typeId1 e1 e2))
+                  Ast.Ge _ -> (bool, returnedInstruction (id) (OpSGreaterThanEqual typeId1 e1 e2))
             | t1 == int32 && t2 == float32 -> error "Not implemented"
             | t1 == float32 && t2 == int32 -> error "Not implemented"
             | t1 == float32 && t2 == float32 ->
                 case op of
-                  Ast.Plus _ -> (float32, returnedInstruction (id) ( OpFAdd typeId1 e1 e2))
-                  Ast.Minus _ -> (float32, returnedInstruction (id) ( OpFSub typeId1 e1 e2))
-                  Ast.Times _ -> (float32, returnedInstruction (id) ( OpFMul typeId1 e1 e2))
-                  Ast.Divide _ -> (float32, returnedInstruction (id) ( OpFDiv typeId1 e1 e2))
-                  Ast.Eq _ -> (bool, returnedInstruction (id) ( OpFOrdEqual typeId1 e1 e2))
-                  Ast.Neq _ -> (bool, returnedInstruction (id) ( OpFOrdNotEqual typeId1 e1 e2))
-                  Ast.Lt _ -> (bool, returnedInstruction (id) ( OpFOrdLessThan typeId1 e1 e2))
-                  Ast.Le _ -> (bool, returnedInstruction (id) ( OpFOrdLessThanEqual typeId1 e1 e2))
-                  Ast.Gt _ -> (bool, returnedInstruction (id) ( OpFOrdGreaterThan typeId1 e1 e2))
-                  Ast.Ge _ -> (bool, returnedInstruction (id) ( OpFOrdGreaterThanEqual typeId1 e1 e2))
+                  Ast.Plus _ -> (float32, returnedInstruction (id) (OpFAdd typeId1 e1 e2))
+                  Ast.Minus _ -> (float32, returnedInstruction (id) (OpFSub typeId1 e1 e2))
+                  Ast.Times _ -> (float32, returnedInstruction (id) (OpFMul typeId1 e1 e2))
+                  Ast.Divide _ -> (float32, returnedInstruction (id) (OpFDiv typeId1 e1 e2))
+                  Ast.Eq _ -> (bool, returnedInstruction (id) (OpFOrdEqual typeId1 e1 e2))
+                  Ast.Neq _ -> (bool, returnedInstruction (id) (OpFOrdNotEqual typeId1 e1 e2))
+                  Ast.Lt _ -> (bool, returnedInstruction (id) (OpFOrdLessThan typeId1 e1 e2))
+                  Ast.Le _ -> (bool, returnedInstruction (id) (OpFOrdLessThanEqual typeId1 e1 e2))
+                  Ast.Gt _ -> (bool, returnedInstruction (id) (OpFOrdGreaterThan typeId1 e1 e2))
+                  Ast.Ge _ -> (bool, returnedInstruction (id) (OpFOrdGreaterThanEqual typeId1 e1 e2))
             | t1 == t2 && (t1 == vector2 || t1 == vector3 || t1 == vector4) ->
                 case op of
-                  Ast.Plus _ -> (t1, returnedInstruction (id) ( OpFAdd typeId1 e1 e2))
-                  Ast.Minus _ -> (t1, returnedInstruction (id) ( OpFSub typeId1 e1 e2))
-                  Ast.Times _ -> (t1, returnedInstruction (id) ( OpFMul typeId1 e1 e2))
+                  Ast.Plus _ -> (t1, returnedInstruction (id) (OpFAdd typeId1 e1 e2))
+                  Ast.Minus _ -> (t1, returnedInstruction (id) (OpFSub typeId1 e1 e2))
+                  Ast.Times _ -> (t1, returnedInstruction (id) (OpFMul typeId1 e1 e2))
             | (t1 == vector2 || t1 == vector3 || t1 == vector4) && (t2 == int32 || t2 == float32) ->
                 case op of
-                  Ast.Times _ -> (vector2, returnedInstruction (id) ( OpVectorTimesScalar typeId1 e1 e2))
+                  Ast.Times _ -> (vector2, returnedInstruction (id) (OpVectorTimesScalar typeId1 e1 e2))
             | (t1 == int32 || t1 == float32) && (t2 == vector2 || t2 == vector3 || t2 == vector4) ->
                 case op of
-                  Ast.Times _ -> (vector2, returnedInstruction (id) ( OpVectorTimesScalar typeId1 e1 e2))
+                  Ast.Times _ -> (vector2, returnedInstruction (id) (OpVectorTimesScalar typeId1 e1 e2))
           _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
    in (state', (id, resultType), emptyInstructions, [instruction])
 
-generateExprSt :: Expr -> State LanxSt (ExprReturn, Instructions,VariableInst, StackInst)
+generateExprSt :: Expr -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
 generateExprSt expr =
   case expr of
     Ast.EBool _ x         -> handleConstSt (LBool x)
@@ -491,29 +491,30 @@ generateExprSt expr =
     Ast.EList _ l         -> handleArraySt l
     Ast.EPar _ e          -> generateExprSt e
     Ast.EVar (_, t1) (Ast.Name (_, _) name) ->
-                             handleVarSt t1 name
+      handleVarSt t1 name
     Ast.EString _ _       -> error "String"
     Ast.EUnit _           -> error "Unit"
     Ast.EApp _ e1 e2      -> handleAppSt e1 e2
     Ast.EIfThenElse _ e1 e2 e3 ->
-                             handleIfThenElseSt e1 e2 e3
+      handleIfThenElseSt e1 e2 e3
     Ast.ENeg _ e          -> handleNegSt e
     Ast.EBinOp _ e1 op e2 -> handleBinOpSt e1 op e2
     Ast.EOp _ _           -> handleOpSt expr
     Ast.ELetIn _ decs e   -> handleLetInSt decs e
 
-handleLetInSt ::[Dec] -> Expr -> State LanxSt VeryImportantTuple
+handleLetInSt :: [Dec] -> Expr -> State LanxSt VeryImportantTuple
 handleLetInSt decs e =
   do
     (envs, envType) <- gets env
     modify (\s -> s{env = (envs ++ ["letIn"], envType)})
     (inst, varInst, stackInst) <- foldMaplM generateDecSt decs
-    (result, inst1, varInst2 ,stackInst1) <- generateExprSt e
+    (result, inst1, varInst2, stackInst1) <- generateExprSt e
     modify (\s -> s{env = (envs, envType)})
-    return (result, inst +++ inst1,varInst++varInst2, stackInst ++ stackInst1)
-    -- in error (show (findResult state2 (ResultVariableValue (env state2, "x", envType))))
-    -- in error (show (idMap state2))
-    -- in error (show decs)
+    return (result, inst +++ inst1, varInst ++ varInst2, stackInst ++ stackInst1)
+
+-- in error (show (findResult state2 (ResultVariableValue (env state2, "x", envType))))
+-- in error (show (idMap state2))
+-- in error (show decs)
 
 handleLetIn :: LanxSt -> [Dec] -> Expr -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
 handleLetIn state decs e =
@@ -521,20 +522,20 @@ handleLetIn state decs e =
    in (s', er, i, vi, si)
 
 handleConstSt :: Literal -> State LanxSt VeryImportantTuple
-handleConstSt lit = fmap (\(v,i,si) -> (v,i,[],si)) $ handleConstSt' lit
+handleConstSt lit = fmap (\(v, i, si) -> (v, i, [], si)) $ handleConstSt' lit
 
 handleConstSt' :: Literal -> State LanxSt (ExprReturn, Instructions, StackInst)
 handleConstSt' lit =
   do
     (id, inst) <- generateConstSt lit
-    return (ExprResult (id, dtypeof lit), inst,[])
+    return (ExprResult (id, dtypeof lit), inst, [])
 
 handleArraySt :: [Expr] -> State LanxSt VeryImportantTuple
 handleArraySt es =
   do
     let len = length es
-    let makeAssociative (a,b,c,d) = ([a],b,c,d)
-    (results, inst, var ,stackInst) <- foldMaplM (fmap makeAssociative .generateExprSt) es
+    let makeAssociative (a, b, c, d) = ([a], b, c, d)
+    (results, inst, var, stackInst) <- foldMaplM (fmap makeAssociative . generateExprSt) es
     (typeId, typeInst) <- generateTypeSt (DTypeArray len DTypeUnknown)
     error "Not implemented array"
 
@@ -571,7 +572,7 @@ handleVarFunctionSt name fs = state $ \s ->
   let (s', er, i, si) = handleVarFunction s name fs
    in ((er, i, si), s')
 
-handleVarFunction :: LanxSt -> String -> FunctionSignature -> (LanxSt, ExprReturn, Instructions,  StackInst)
+handleVarFunction :: LanxSt -> String -> FunctionSignature -> (LanxSt, ExprReturn, Instructions, StackInst)
 handleVarFunction state name (returnType, args) =
   let result = findResult state (ResultFunction name (returnType, args))
    in case result of
@@ -591,12 +592,12 @@ handleVarFunction state name (returnType, args) =
                   let dec = fromMaybe (error (name ++ show args)) (findDec (decs state) name Nothing)
                       ((id, inst1), state') = runState (generateFunctionSt emptyInstructions dec) state
                    in (state', ExprApplication (CustomFunction id name) (return, args) [], inst1, [])
-                      -- error (show id ++ show (functionFields inst1))
+            -- error (show id ++ show (functionFields inst1))
             -- case findResult state (ResultFunction name ) of {}
             _ -> error "Not implemented function"
 
 handleVarSt :: Type -> BS.ByteString -> State LanxSt VeryImportantTuple
-handleVarSt t1 n = fmap (\(v,i,si) -> (v,i,[],si)) $ handleVarSt' t1 n
+handleVarSt t1 n = fmap (\(v, i, si) -> (v, i, [], si)) $ handleVarSt' t1 n
 
 handleVarSt' :: Type -> BS.ByteString -> State LanxSt (ExprReturn, Instructions, StackInst)
 handleVarSt' t1 n =
@@ -609,44 +610,45 @@ handleVarSt' t1 n =
           state <- get
           let maybeResult = findResult state (ResultVariableValue (env state, BS.unpack n, dType))
           case maybeResult of
-              Just x -> return (x, mempty, [])
-              Nothing ->
-                do
-                  state <- get
-                  -- let ExprResult (varId, varType) = fromMaybe (error ("can find var:" ++ show (env state, BS.unpack n, dType))) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
-                  let ExprResult (varId, varType) = fromMaybe (error . show $ idMap state) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
-                  _er <- insertResultSt (ResultVariableValue (env state, BS.unpack n, dType)) Nothing
-                  let ExprResult (valueId, _) = _er
-                  state2 <- get
-                  let inst = returnedInstruction (valueId) (OpLoad (searchTypeId state2 varType) varId)
-                  return (ExprResult (valueId, varType), mempty, [inst])
-  --  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
+            Just x -> return (x, mempty, [])
+            Nothing ->
+              do
+                state <- get
+                -- let ExprResult (varId, varType) = fromMaybe (error ("can find var:" ++ show (env state, BS.unpack n, dType))) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
+                let ExprResult (varId, varType) = fromMaybe (error . show $ idMap state) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
+                _er <- insertResultSt (ResultVariableValue (env state, BS.unpack n, dType)) Nothing
+                let ExprResult (valueId, _) = _er
+                state2 <- get
+                let inst = returnedInstruction (valueId) (OpLoad (searchTypeId state2 varType) varId)
+                return (ExprResult (valueId, varType), mempty, [inst])
+    --  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
     return (var, inst, stackInst)
-  --  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
+
+--  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
 
 handleAppSt :: Expr -> Expr -> State LanxSt VeryImportantTuple
 handleAppSt e1 e2 =
   do
-    (var1, inst1, varInst1,stackInst1) <- generateExprSt e1
-    (var2, inst2, varInst2,stackInst2) <- generateExprSt e2
-    (var3, inst3, varInst3,stackInst3) <-
+    (var1, inst1, varInst1, stackInst1) <- generateExprSt e1
+    (var2, inst2, varInst2, stackInst2) <- generateExprSt e2
+    (var3, inst3, varInst3, stackInst3) <-
       case var1 of
         ExprApplication funcType (returnType, argTypes) args ->
           let args' = case var2 of
                 ExprResult v -> args ++ [v] -- add argument
                 _ -> error "Expected ExprResult"
               functionType = DTypeFunction returnType argTypes
-           in
-            case (length args', length argTypes) of
-              (l, r) | l == r ->
-                case funcType of
-                  CustomFunction id s -> applyFunctionSt id returnType args'
-                  TypeConstructor t   -> handleConstructorSt t functionType args'
-                  TypeExtractor t int -> handleExtractSt t int (head args')
-                  OperatorFunction op -> error "Not implemented" -- TODO:
-              (l, r) | l < r -> -- uncompleted applicatoin
-                return $ (ExprApplication funcType (returnType, argTypes) args', mempty, [],[])
-              (l, r) | l > r -> error "Too many arguments"
+           in case (length args', length argTypes) of
+                (l, r) | l == r ->
+                  case funcType of
+                    CustomFunction id s -> applyFunctionSt id returnType args'
+                    TypeConstructor t   -> handleConstructorSt t functionType args'
+                    TypeExtractor t int -> handleExtractSt t int (head args')
+                    OperatorFunction op -> error "Not implemented" -- TODO:
+                (l, r) | l < r ->
+                  -- uncompleted applicatoin
+                  return $ (ExprApplication funcType (returnType, argTypes) args', mempty, [], [])
+                (l, r) | l > r -> error "Too many arguments"
         _ -> error (show var1 ++ show var2)
     let finalVar   = var3
     let inst'      = inst1 +++ inst2 +++ inst3
@@ -656,11 +658,11 @@ handleAppSt e1 e2 =
 
 handleApp :: LanxSt -> Expr -> Expr -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
 handleApp state e1 e2 =
-  let ((v,i,vi,si), s') = runState (handleAppSt e1 e2) state
-   in (s',v,i,vi,si)
+  let ((v, i, vi, si), s') = runState (handleAppSt e1 e2) state
+   in (s', v, i, vi, si)
 
 handleConstructorSt :: DataType -> DataType -> [Variable] -> State LanxSt VeryImportantTuple
-handleConstructorSt rt ft args = fmap (\(v,i,si) -> (v,i,[],si)) $ handleConstructorSt' rt ft args
+handleConstructorSt rt ft args = fmap (\(v, i, si) -> (v, i, [], si)) $ handleConstructorSt' rt ft args
 
 handleConstructorSt' :: DataType -> DataType -> [Variable] -> State LanxSt (ExprReturn, Instructions, StackInst)
 handleConstructorSt' returnType functionType args =
@@ -672,7 +674,7 @@ handleConstructorSt' returnType functionType args =
     return (ExprResult (returnId, returnType), inst, stackInst)
 
 handleExtractSt :: DataType -> [Int] -> Variable -> State LanxSt VeryImportantTuple
-handleExtractSt rt i var = fmap (\(v,i,si) -> (v,i,[],si)) $ handleExtractSt' rt i var
+handleExtractSt rt i var = fmap (\(v, i, si) -> (v, i, [], si)) $ handleExtractSt' rt i var
 
 handleExtractSt' :: DataType -> [Int] -> Variable -> State LanxSt (ExprReturn, Instructions, StackInst)
 handleExtractSt' returnType i var@(opId, _) =
@@ -689,16 +691,16 @@ applyFunctionSt_aux1 (typeId, t) =
     id <- gets idCount
     let varId = IdName ("param_" ++ show id)
     modify (\s -> s{idCount = idCount s + 1})
-    return (
-      [(varId, t)],
-      [returnedInstruction (varId) (OpVariable typeId Function)],
-      [noReturnInstruction (OpStore varId (fst t))])
+    return
+      ( [(varId, t)]
+      , [returnedInstruction (varId) (OpVariable typeId Function)]
+      , [noReturnInstruction (OpStore varId (fst t))]
+      )
 
 applyFunctionSt :: OpId -> DataType -> [Variable] -> State LanxSt VeryImportantTuple
 applyFunctionSt id returnType args =
   do
     searchTypeId_state0_returnType <- gets (\s -> searchTypeId s returnType) -- FIXME: please rename this
-
     let makeAssociative (id, inst) = ([id], inst)
     (typeIds, inst1) <- foldMaprM (fmap makeAssociative . generateTypeSt . DTypePointer Function . snd) args
 
@@ -714,32 +716,32 @@ applyFunctionSt id returnType args =
 -- TODO: Unfinished Monad-ise
 handleIfThenElseSt :: Expr -> Expr -> Expr -> State LanxSt VeryImportantTuple
 handleIfThenElseSt e1 e2 e3 = state $ \state ->
-  let (s',v,i,vi,si) = handleIfThenElse state e1 e2 e3
-   in ((v,i,vi,si), s')
+  let (s', v, i, vi, si) = handleIfThenElse state e1 e2 e3
+   in ((v, i, vi, si), s')
 
 handleIfThenElse :: LanxSt -> Expr -> Expr -> Expr -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
 handleIfThenElse state e1 e2 e3 =
-  let ((ExprResult var1, inst1,varInst1, stackInst1), state1) = runState (generateExprSt e1) state
-      ((var2, inst2,varInst2, stackInst2), state2) = runState (generateExprSt e2) state1
-      ((var3, inst3,varInst3, stackInst3), state3) = runState (generateExprSt e3) state2
+  let ((ExprResult var1, inst1, varInst1, stackInst1), state1) = runState (generateExprSt e1) state
+      ((var2, inst2, varInst2, stackInst2), state2) = runState (generateExprSt e2) state1
+      ((var3, inst3, varInst3, stackInst3), state3) = runState (generateExprSt e3) state2
       conditionId = case var1 of
         (id, DTypeBool) -> id
         _ -> error "Expected bool"
       id = idCount state3
       sInst1' = stackInst1 ++ [noReturnInstruction (OpBranchConditional conditionId (Id (id + 1)) (Id (id + 2)))]
-      sInst2' = [returnedInstruction ((Id (id + 1))) ( OpLabel)] ++ stackInst2 ++ [noReturnInstruction ( OpBranch (Id (id + 3)))]
+      sInst2' = [returnedInstruction ((Id (id + 1))) (OpLabel)] ++ stackInst2 ++ [noReturnInstruction (OpBranch (Id (id + 3)))]
       sInst3' =
-        [returnedInstruction ((Id (id + 2))) ( OpLabel)]
+        [returnedInstruction ((Id (id + 2))) (OpLabel)]
           ++ stackInst3
           ++ [noReturnInstruction (OpBranch (Id (id + 3)))]
-          ++ [returnedInstruction ((Id (id + 3))) ( OpLabel)]
+          ++ [returnedInstruction ((Id (id + 3))) (OpLabel)]
       state4 = state3{idCount = id + 3}
    in -- todo handle return variable
-      (state3, var3, inst1 +++ inst2 +++ inst3,varInst1++varInst2++varInst3, sInst1' ++ sInst2' ++ sInst3')
+      (state3, var3, inst1 +++ inst2 +++ inst3, varInst1 ++ varInst2 ++ varInst3, sInst1' ++ sInst2' ++ sInst3')
 
 -- error "Not implemented if then else"
 
-handleNegSt :: Expr -> State LanxSt (ExprReturn, Instructions,VariableInst ,StackInst)
+handleNegSt :: Expr -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
 handleNegSt e =
   do
     (_er, inst1, varInst1, stackInst1) <- generateExprSt e
@@ -750,15 +752,15 @@ handleNegSt e =
 -- TODO: Unfinished Monad-ise
 handleBinOpSt :: Expr -> Ast.Op (Range, Type) -> Expr -> State LanxSt VeryImportantTuple
 handleBinOpSt e1 op e2 = state $ \state ->
-  let (s',v,i,vi,si) = handleBinOp state e1 op e2
-   in ((v,i,vi,si), s')
+  let (s', v, i, vi, si) = handleBinOp state e1 op e2
+   in ((v, i, vi, si), s')
 
-handleBinOp :: LanxSt -> Expr -> Ast.Op (Range, Type) -> Expr -> (LanxSt, ExprReturn, Instructions,VariableInst, StackInst)
+handleBinOp :: LanxSt -> Expr -> Ast.Op (Range, Type) -> Expr -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
 handleBinOp state e1 op e2 =
-  let ((ExprResult var1, inst1,varInst1, stackInst1), state1) = runState (generateExprSt e1) state
-      ((ExprResult var2, inst2,varInst2, stackInst2), state2) = runState (generateExprSt e2) state1
+  let ((ExprResult var1, inst1, varInst1, stackInst1), state1) = runState (generateExprSt e1) state
+      ((ExprResult var2, inst2, varInst2, stackInst2), state2) = runState (generateExprSt e2) state1
       (state3, var3, inst3, stackInst3) = generateBinOp state2 var1 op var2
-   in (state3, ExprResult var3, inst1 +++ inst2 +++ inst3,varInst1++varInst2, stackInst1 ++ stackInst2 ++ stackInst3)
+   in (state3, ExprResult var3, inst1 +++ inst2 +++ inst3, varInst1 ++ varInst2, stackInst1 ++ stackInst2 ++ stackInst3)
 
 generateDecSt :: Dec -> State LanxSt (Instructions, VariableInst, StackInst)
 generateDecSt (Ast.DecAnno _ name t) = return mempty
@@ -774,7 +776,7 @@ generateDecSt (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
     return (inst1 +++ inst2, varInst, stackInst)
 
 generateInitSt :: Config -> [Dec] -> State LanxSt (Instructions)
-generateInitSt cfg decs = 
+generateInitSt cfg decs =
   do
     let startId = 0
     let headInstruction =
@@ -786,12 +788,13 @@ generateInitSt cfg decs =
             , executionModeInst = Just $ noReturnInstruction $ OpExecutionMode (IdName . entryPoint $ cfg) (executionMode cfg)
             , sourceInst        = Just $ noReturnInstruction $ uncurry OpSource (source cfg)
             }
-    put $ LanxSt
-            { idCount = startId + 1
-            , idMap = Map.empty
-            , env = ([entryPoint cfg], DTypeVoid)
-            , decs = decs
-            }
+    put $
+      LanxSt
+        { idCount = startId + 1
+        , idMap = Map.empty
+        , env = ([entryPoint cfg], DTypeVoid)
+        , decs = decs
+        }
     _ <- insertResultSt (ResultCustom "ext ") (Just (ExprResult (Id 1, DTypeVoid))) -- ext
     let inst =
           Instructions
@@ -804,7 +807,7 @@ generateInitSt cfg decs =
             }
     return inst
 
-generateUniformsSt_aux1 :: (String, DataType, StorageClass, Int) -> State LanxSt (Instructions, [ResultId]) 
+generateUniformsSt_aux1 :: (String, DataType, StorageClass, Int) -> State LanxSt (Instructions, [ResultId])
 generateUniformsSt_aux1 (name, dType, storage, location) =
   do
     (typeId, inst1) <- generateTypeSt (DTypePointer storage dType)
@@ -830,24 +833,24 @@ generateUniformsSt cfg args =
   let
     shaderTypeOfCfg = shaderType cfg
     entryPointOfCfg = entryPoint cfg
-  in do
-    let nntOfArgs = fmap getNameAndDType args
-    let uniforms = fmap (\((n, t), i) -> (n, t, Input, i)) $ zip nntOfArgs [0..]
-    let uniforms' = ("outColor", vector4, Output, 0) : uniforms -- todo handle custom output
+   in
+    do
+      let nntOfArgs = fmap getNameAndDType args
+      let uniforms = fmap (\((n, t), i) -> (n, t, Input, i)) $ zip nntOfArgs [0 ..]
+      let uniforms' = ("outColor", vector4, Output, 0) : uniforms -- todo handle custom output
+      (inst, ids) <- foldMaplM generateUniformsSt_aux1 uniforms'
 
-    (inst, ids) <- foldMaplM generateUniformsSt_aux1 uniforms'
+      let hf = trace "test" $ headerFields inst
+      let hf' = hf{entryPointInst = Just $ noReturnInstruction (OpEntryPoint shaderTypeOfCfg (IdName entryPointOfCfg) (entryPointOfCfg) (ShowList ids))}
+      let inst1 = inst{headerFields = hf'}
 
-    let hf = trace "test" $ headerFields inst
-    let hf' = hf{entryPointInst = Just $ noReturnInstruction (OpEntryPoint shaderTypeOfCfg (IdName entryPointOfCfg) (entryPointOfCfg) (ShowList ids))}
-    let inst1 = inst{headerFields = hf'}
-
-    return inst1
+      return inst1
 
 -- error (show (env state') ++ show uniforms')
 
 generateFunctionParamSt :: [Ast.Argument (Range, Type)] -> State LanxSt (Instructions, [Instruction])
 generateFunctionParamSt args =
-  let 
+  let
     aux :: (String, DataType) -> State LanxSt (Instructions, Instruction)
     aux (name, dType) = do
       (typeId, inst1) <- generateTypeSt (DTypePointer Function dType)
@@ -857,8 +860,9 @@ generateFunctionParamSt args =
       let paramInst = returnedInstruction (id) (OpFunctionParameter typeId)
       return (inst1, paramInst)
     makeAssociative (is, i) = (is, [i]) -- it's a anti-optimised move, but making less mentally taxing
-  in do
-    foldMaplM (fmap makeAssociative . aux) . fmap getNameAndDType $ args
+   in
+    do
+      foldMaplM (fmap makeAssociative . aux) . fmap getNameAndDType $ args
 
 -- error (show (env state') ++ show vars)
 
@@ -889,14 +893,15 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
 
     returnTypeId <- gets (\s -> searchTypeId s returnType)
 
-    let funcInst = FunctionInst {
-      begin     = [commentInstruction $ "function " ++ BS.unpack name, returnedInstruction funcId (OpFunction returnTypeId None typeId)],
-      parameter = paramInst,
-      label     = [returnedInstruction labelId OpLabel],
-      variable  = varInst,
-      body      = exprInst ++ [noReturnInstruction $ OpReturnValue resultId],
-      end       = [noReturnInstruction OpFunctionEnd]
-    }
+    let funcInst =
+          FunctionInst
+            { begin = [commentInstruction $ "function " ++ BS.unpack name, returnedInstruction funcId (OpFunction returnTypeId None typeId)]
+            , parameter = paramInst
+            , label = [returnedInstruction labelId OpLabel]
+            , variable = varInst
+            , body = exprInst ++ [noReturnInstruction $ OpReturnValue resultId]
+            , end = [noReturnInstruction OpFunctionEnd]
+            }
     let inst4 = inst +++ inst1 +++ inst2 +++ inst3
     let inst5 = inst4{functionFields = functionFields inst4 ++ [funcInst]}
     return (funcId, inst5)
@@ -916,7 +921,7 @@ generateMainFunctionSt inst cfg (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     labelId <- gets (Id . idCount)
 
     inst2 <- generateUniformsSt cfg args
-    (_er, inst3, varInst ,exprInst) <- generateExprSt e
+    (_er, inst3, varInst, exprInst) <- generateExprSt e
     let (ExprResult (resultId, _)) = _er
     state5 <- get
     let returnTypeId = searchTypeId state5 returnType
@@ -924,42 +929,42 @@ generateMainFunctionSt inst cfg (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     let ExprResult (varId, _) = fromMaybe (error $ show $ env state5) (findResult state5 (ResultVariable (env state5, "outColor", vector4)))
     let saveInst = [noReturnInstruction (OpStore varId resultId)]
 
-    let funcInst = FunctionInst {
-      begin = [commentInstruction $ "function " ++ BS.unpack name, returnedInstruction (funcId) ( OpFunction returnTypeId None typeId)],
-      parameter = [],
-      label = [returnedInstruction (labelId) ( OpLabel)],
-      variable = varInst,
-      body = exprInst ++ [noReturnInstruction (OpReturn)],
-      end = [noReturnInstruction (OpFunctionEnd)]
-    }
+    let funcInst =
+          FunctionInst
+            { begin = [commentInstruction $ "function " ++ BS.unpack name, returnedInstruction (funcId) (OpFunction returnTypeId None typeId)]
+            , parameter = []
+            , label = [returnedInstruction (labelId) (OpLabel)]
+            , variable = varInst
+            , body = exprInst ++ [noReturnInstruction (OpReturn)]
+            , end = [noReturnInstruction (OpFunctionEnd)]
+            }
 
     let inst4 = inst +++ inst1 +++ inst2 +++ inst3
     let inst5 = inst4{functionFields = functionFields inst4 ++ [funcInst]}
     return inst5
 
-
 findDec' :: String -> Maybe FunctionSignature -> [Dec] -> Maybe Dec
 findDec' name maybeFS = find' aux
-  where
-    aux = case maybeFS of
-      Nothing ->
-        ( \case
-            Ast.Dec _ (Ast.Name _ n) _ _ -> n == BS.pack name
-            _ -> False
-        )
-      Just (_, argTs) ->
-        ( \case
-            Ast.Dec _ (Ast.Name _ n) args' _ ->
-              let argTs' = map (typeConvert . TI.getType) args'
-              in n == BS.pack name && argTs == argTs
-            _ -> False
-        )
-    find' :: (a -> Bool) -> [a] -> Maybe a
-    find' p xs =
-      case filter p xs of
-        [v] -> Just v
-        [] -> Nothing
-        _ -> error "found multiple result, perhaps you want to use `find`"
+ where
+  aux = case maybeFS of
+    Nothing ->
+      ( \case
+          Ast.Dec _ (Ast.Name _ n) _ _ -> n == BS.pack name
+          _ -> False
+      )
+    Just (_, argTs) ->
+      ( \case
+          Ast.Dec _ (Ast.Name _ n) args' _ ->
+            let argTs' = map (typeConvert . TI.getType) args'
+             in n == BS.pack name && argTs == argTs
+          _ -> False
+      )
+  find' :: (a -> Bool) -> [a] -> Maybe a
+  find' p xs =
+    case filter p xs of
+      [v] -> Just v
+      [] -> Nothing
+      _ -> error "found multiple result, perhaps you want to use `find`"
 
 -- search dec by name and function signature
 findDec :: [Dec] -> String -> Maybe FunctionSignature -> Maybe Dec
@@ -967,8 +972,8 @@ findDec decs n mfs = findDec' n mfs decs
 
 flattenFunctionInst :: FunctionInst -> [Instruction]
 flattenFunctionInst func =
- let FunctionInst {begin, parameter, label, variable, body, end} = func
-  in begin ++ parameter ++ label ++ variable ++ body ++ end
+  let FunctionInst{begin, parameter, label, variable, body, end} = func
+   in begin ++ parameter ++ label ++ variable ++ body ++ end
 
 instructionsToString :: Instructions -> String
 instructionsToString inst =
