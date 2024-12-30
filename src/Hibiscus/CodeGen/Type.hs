@@ -103,7 +103,7 @@ data ResultType
   | ResultConstant Literal -- done
   | ResultVariable (Env, String, DataType) -- done
   | ResultVariableValue (Env, String, DataType) -- done
-  | ResultFunction String FunctionSignature -- name return type, arguments
+  -- | ResultFunction String FunctionSignature -- name return type, arguments
   | ResultCustom String -- done
   deriving (Show, Eq, Ord)
 

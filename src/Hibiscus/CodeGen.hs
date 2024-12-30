@@ -49,7 +49,7 @@ generateInitSt cfg decs =
       LanxSt
         { idCount = startId + 1
         , idMap = Map.empty
-        , env = ([entryPoint cfg], DTypeVoid)
+        , env = ([], DTypeVoid)
         , decs = decs
         }
     _ <- insertResultSt (ResultCustom "ext ") (Just (ExprResult (Id 1, DTypeVoid))) -- ext
@@ -116,7 +116,7 @@ generateMainFunctionSt inst cfg (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     _er <- insertResultSt (ResultCustom "func ") (Just (ExprResult (IdName (BS.unpack name), functionType)))
     let ExprResult (funcId, _) = _er
 
-    modify (\s -> s{idCount = idCount s + 1, env = ([BS.unpack name], functionType)})
+    modify (\s -> s{idCount = idCount s + 1, env = ("":[BS.unpack name], functionType)})
     labelId <- gets (Id . idCount)
 
     inst2 <- generateUniformsSt cfg args
@@ -132,10 +132,10 @@ generateMainFunctionSt inst cfg (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
           FunctionInst
             { begin = [commentInstruction $ "function " ++ BS.unpack name, returnedInstruction (funcId) (OpFunction returnTypeId None typeId)]
             , parameter = []
-            , label = [returnedInstruction (labelId) (OpLabel)]
+            , label = [returnedInstruction labelId OpLabel]
             , variable = varInst
-            , body = exprInst ++ [noReturnInstruction (OpReturn)]
-            , end = [noReturnInstruction (OpFunctionEnd)]
+            , body = exprInst ++ saveInst ++ [noReturnInstruction OpReturn]
+            , end = [noReturnInstruction OpFunctionEnd]
             }
 
     let inst4 = inst +++ inst1 +++ inst2 +++ inst3
@@ -165,8 +165,8 @@ generate config decs =
   do
     let mainDec = fromJust $ findDec decs (entryPoint config) Nothing
 
-    let nomatterState = undefined
-    let (inst, initState) = runState (generateInitSt config decs) nomatterState
+    let noMatterState = undefined
+    let (inst, initState) = runState (generateInitSt config decs) noMatterState
     let (inst', state') = runState (generateMainFunctionSt inst config mainDec) initState
     -- (state3, _, inst2) = generateType initState (DTypePointer Input vector2)
 
