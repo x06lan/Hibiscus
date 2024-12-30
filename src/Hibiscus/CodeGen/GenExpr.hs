@@ -30,6 +30,11 @@ import Hibiscus.Util (foldMaplM, foldMaprM)
 
 import Hibiscus.CodeGen.Type
 
+
+----- Below are used by a lot of place
+
+-- TODO: Unfinished Monad-ise
+-- Helper function to generate a new entry for the IdType
 -- used by insertResultSt
 generateEntrySt :: ResultType -> State LanxSt (ExprReturn)
 generateEntrySt key = state $ \s ->
@@ -154,16 +159,7 @@ generateTypeSt dType = do
       inst3 <- generateTypeSt_aux2 dType typeId
       return (typeId, inst +++ inst3)
 
--- used by handleConstSt
-generateConstSt :: Literal -> State LanxSt (OpId, Instructions)
-generateConstSt v = do
-  let dtype = dtypeof v
-  (typeId, typeInst) <- generateTypeSt dtype
-  er <- insertResultSt (ResultConstant v) Nothing
-  let (ExprResult (constId, dType)) = er
-  let constInstruction = [returnedInstruction constId (OpConstant typeId v)]
-  let inst = typeInst{constFields = constFields typeInst ++ constInstruction}
-  return (constId, inst)
+----- Below are NegOp/BinOp lookup maps (I might wrong)
 
 -- used by generateExprSt (Ast.ENeg _ e)
 generateNegOpSt :: Variable -> State LanxSt (Variable, StackInst)
@@ -193,7 +189,6 @@ generateBinOpSt v1 op v2 = state $ \s ->
   let (s', v, i, si) = generateBinOp s v1 op v2
    in ((v, i, si), s')
 
--- used by handleBinOp
 -- used by generateExprSt (Ast.EBinOp _ e1 op e2)
 generateBinOp :: LanxSt -> Variable -> Ast.Op (Range, Type) -> Variable -> (LanxSt, Variable, Instructions, StackInst)
 generateBinOp state v1@(e1, t1) op v2@(e2, t2) =
@@ -253,8 +248,9 @@ generateBinOp state v1@(e1, t1) op v2@(e2, t2) =
           _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
    in (state', (id, resultType), emptyInstructions, [instruction])
 
+----- Below are directly used by generateExprSt
 
--- used by generateExprSt (Ast.ELetIn _ decs e)
+-- fold aux used by generateExprSt (Ast.ELetIn _ decs e)
 generateDecSt :: Dec -> State LanxSt (Instructions, VariableInst, StackInst)
 generateDecSt (Ast.DecAnno _ name t) = return mempty
 generateDecSt (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
@@ -285,7 +281,7 @@ generateFunctionParamSt args =
     do
       foldMaplM (fmap makeAssociative . aux) . fmap getNameAndDType $ args
 
--- used by handleVarFunction
+-- aux used by handleVarFunctionSt
 -- used by generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name))
 generateFunctionSt :: Instructions -> Dec -> State LanxSt (OpId, Instructions)
 generateFunctionSt inst (Ast.DecAnno _ name t) = return $ (IdName "", inst)
@@ -304,7 +300,7 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     (inst2, paramInst) <- generateFunctionParamSt args
 
     modify (\s -> s{idCount = idCount s + 1})
-
+ 
     labelId <- gets (Id . idCount)
 
     (er, inst3, varInst, exprInst) <- generateExprSt e
@@ -327,79 +323,59 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     let inst5 = inst4{functionFields = functionFields inst4 ++ [funcInst]}
     return (funcId, inst5)
 
--- TODO: Unfinished Monad-ise
-handleVarFunctionSt :: String -> FunctionSignature -> State LanxSt (ExprReturn, Instructions, StackInst)
-handleVarFunctionSt name fs = state $ \s ->
-  let (s', er, i, si) = handleVarFunction s name fs
-   in ((er, i, si), s')
-
 -- used by generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name))
-handleVarFunction :: LanxSt -> String -> FunctionSignature -> (LanxSt, ExprReturn, Instructions, StackInst)
-handleVarFunction state name (returnType, args) =
-  let result = findResult state (ResultFunction name (returnType, args))
-   in case result of
-        Just x -> (state, x, emptyInstructions, [])
-        Nothing ->
-          case (typeStringConvert name, returnType, args) of
-            (Just x, return, args)
-              | x == return -> (state, ExprApplication (TypeConstructor return) (return, args) [], emptyInstructions, [])
-            (Nothing, return, args)
-              | name == "foldl" -> (state, ExprApplication FunctionFoldl (return, args) [], emptyInstructions, [])
-              | name == "map" -> (state, ExprApplication FunctionMap (return, args) [], emptyInstructions, [])
-              | name == "extract_0" -> if length args == 1 && return == float32 then (state, ExprApplication (TypeExtractor returnType [0]) (return, args) [], emptyInstructions, []) else error (name ++ ":" ++ show args)
-              | name == "extract_1" -> if length args == 1 && return == float32 then (state, ExprApplication (TypeExtractor returnType [1]) (return, args) [], emptyInstructions, []) else error (name ++ ":" ++ show args)
-              | name == "extract_2" -> if length args == 1 && return == float32 then (state, ExprApplication (TypeExtractor returnType [2]) (return, args) [], emptyInstructions, []) else error (name ++ ":" ++ show args)
-              | name == "extract_3" -> if length args == 1 && return == float32 then (state, ExprApplication (TypeExtractor returnType [3]) (return, args) [], emptyInstructions, []) else error (name ++ ":" ++ show args)
-              | True ->
-                  let dec = fromMaybe (error (name ++ show args)) (findDec (decs state) name Nothing)
-                      ((id, inst1), state') = runState (generateFunctionSt emptyInstructions dec) state
-                   in (state', ExprApplication (CustomFunction id name) (return, args) [], inst1, [])
-            -- error (show id ++ show (functionFields inst1))
-            -- case findResult state (ResultFunction name ) of {}
-            _ -> error "Not implemented function"
+handleVarFunctionSt :: String -> FunctionSignature -> State LanxSt (ExprReturn, Instructions, StackInst)
+handleVarFunctionSt name (returnType, args) =
+  let
+    magic x =
+      if length args == 1 && returnType == float32
+        then x
+        else error (name ++ ":" ++ show args)
+  in do
+    state <- get
+    let result = findResult state (ResultFunction name (returnType, args))
+    case result of
+      Just x -> return (x, emptyInstructions, [])
+      Nothing ->
+        case typeStringConvert name of
+          Just x
+            | x == returnType -> return (ExprApplication (TypeConstructor returnType) (returnType, args) [], emptyInstructions, [])
+          Nothing
+            | name == "foldl" -> return (ExprApplication FunctionFoldl (returnType, args) [], emptyInstructions, [])
+            | name == "map" -> return (ExprApplication FunctionMap (returnType, args) [], emptyInstructions, [])
+            | name == "extract_0" -> magic $ return (ExprApplication (TypeExtractor returnType [0]) (returnType, args) [], mempty, [])
+            | name == "extract_1" -> magic $ return (ExprApplication (TypeExtractor returnType [1]) (returnType, args) [], mempty, [])
+            | name == "extract_2" -> magic $ return (ExprApplication (TypeExtractor returnType [2]) (returnType, args) [], mempty, [])
+            | name == "extract_3" -> magic $ return (ExprApplication (TypeExtractor returnType [3]) (returnType, args) [], mempty, [])
+            | True ->
+              do
+                let dec = fromMaybe (error (name ++ show args)) (findDec (decs state) name Nothing)
+                (id, inst1) <- generateFunctionSt emptyInstructions dec
+                return (ExprApplication (CustomFunction id name) (returnType, args) [], inst1, [])
+          -- error (show id ++ show (functionFields inst1))
+          -- case findResult state (ResultFunction name ) of {}
+          _ -> error "Not implemented function"
 
------ Belows are unfinished Monad-ise handles
+-- used by handleConstSt
+-- used by generateExprSt literals
+generateConstSt :: Literal -> State LanxSt (OpId, Instructions)
+generateConstSt v = do
+  let dtype = dtypeof v
+  (typeId, typeInst) <- generateTypeSt dtype
+  er <- insertResultSt (ResultConstant v) Nothing
+  let (ExprResult (constId, dType)) = er
+  let constInstruction = [returnedInstruction constId (OpConstant typeId v)]
+  let inst = typeInst{constFields = constFields typeInst ++ constInstruction}
+  return (constId, inst)
 
--- TODO: Unfinished Monad-ise
-handleIfThenElseSt :: Expr -> Expr -> Expr -> State LanxSt VeryImportantTuple
-handleIfThenElseSt e1 e2 e3 = state $ \state ->
-  let (s', v, i, vi, si) = handleIfThenElse state e1 e2 e3
-   in ((v, i, vi, si), s')
+-- used by generateExprSt literals
+handleConstSt :: Literal -> State LanxSt VeryImportantTuple
+handleConstSt lit =
+  do
+    (id, inst) <- generateConstSt lit
+    return (ExprResult (id, dtypeof lit), inst, [], [])
 
-handleIfThenElse :: LanxSt -> Expr -> Expr -> Expr -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
-handleIfThenElse state e1 e2 e3 =
-  let ((ExprResult var1, inst1, varInst1, stackInst1), state1) = runState (generateExprSt e1) state
-      ((var2, inst2, varInst2, stackInst2), state2) = runState (generateExprSt e2) state1
-      ((var3, inst3, varInst3, stackInst3), state3) = runState (generateExprSt e3) state2
-      conditionId = case var1 of
-        (id, DTypeBool) -> id
-        _ -> error "Expected bool"
-      id = idCount state3
-      sInst1' = stackInst1 ++ [noReturnInstruction (OpBranchConditional conditionId (Id (id + 1)) (Id (id + 2)))]
-      sInst2' = [returnedInstruction ((Id (id + 1))) (OpLabel)] ++ stackInst2 ++ [noReturnInstruction (OpBranch (Id (id + 3)))]
-      sInst3' =
-        [returnedInstruction ((Id (id + 2))) (OpLabel)]
-          ++ stackInst3
-          ++ [noReturnInstruction (OpBranch (Id (id + 3)))]
-          ++ [returnedInstruction ((Id (id + 3))) (OpLabel)]
-      state4 = state3{idCount = id + 3}
-   in -- todo handle return variable
-      (state3, var3, inst1 +++ inst2 +++ inst3, varInst1 ++ varInst2 ++ varInst3, sInst1' ++ sInst2' ++ sInst3')
-
--- TODO: Unfinished Monad-ise
-handleBinOpSt :: Expr -> Ast.Op (Range, Type) -> Expr -> State LanxSt VeryImportantTuple
-handleBinOpSt e1 op e2 = state $ \state ->
-  let (s', v, i, vi, si) = handleBinOp state e1 op e2
-   in ((v, i, vi, si), s')
-
-handleBinOp :: LanxSt -> Expr -> Ast.Op (Range, Type) -> Expr -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
-handleBinOp state e1 op e2 =
-  let ((ExprResult var1, inst1, varInst1, stackInst1), state1) = runState (generateExprSt e1) state
-      ((ExprResult var2, inst2, varInst2, stackInst2), state2) = runState (generateExprSt e2) state1
-      (state3, var3, inst3, stackInst3) = generateBinOp state2 var1 op var2
-   in (state3, ExprResult var3, inst1 +++ inst2 +++ inst3, varInst1 ++ varInst2, stackInst1 ++ stackInst2 ++ stackInst3)
-
------ Belows are use by generateExprSt (Ast.EApp _ e1 e2)
+----- Below are use by generateExprSt (Ast.EApp _ e1 e2)
 
 applyFunctionSt_aux1 :: (OpId, (OpId, b)) -> State LanxSt ([(OpId, (OpId, b))], [Instruction], [Instruction])
 applyFunctionSt_aux1 (typeId, t) =
@@ -447,13 +423,7 @@ handleExtractSt returnType i var@(opId, _) =
     let stackInst = [returnedInstruction (returnId) (OpCompositeExtract typeId opId (ShowList i))]
     return (ExprResult (returnId, returnType), inst, [], stackInst)
 
------ Belows are directly use by generateExprSt
-
-handleConstSt :: Literal -> State LanxSt VeryImportantTuple
-handleConstSt lit =
-  do
-    (id, inst) <- generateConstSt lit
-    return (ExprResult (id, dtypeof lit), inst, [], [])
+----- Below are stateless
 
 handleOp' :: Expr -> ExprReturn
 handleOp' (Ast.EOp _ op) =
@@ -539,14 +509,41 @@ generateExprSt (Ast.EApp _ e1 e2) =
     let varInst'   = varInst1 ++ varInst2 ++ varInst3
     let stackInst' = stackInst1 ++ stackInst2 ++ stackInst3
     return (finalVar, inst', varInst', stackInst')
-generateExprSt (Ast.EIfThenElse _ cond thenE elseE) = handleIfThenElseSt cond thenE elseE -- TODO:
+generateExprSt (Ast.EIfThenElse _ cond thenE elseE) =
+  let
+    getIdFromBool :: ExprReturn -> OpId
+    getIdFromBool (ExprResult (id, DTypeBool)) = id
+    getIdFromBool _ = error "Expected bool"
+  in do
+    (condResult, inst1, varInst1, stackInst1) <- generateExprSt cond
+    let conditionId = getIdFromBool condResult
+    (var2, inst2, varInst2, stackInst2) <- generateExprSt thenE
+    (var3, inst3, varInst3, stackInst3) <- generateExprSt elseE
+    id <- gets idCount
+    let sInst1' = stackInst1 ++ [noReturnInstruction (OpBranchConditional conditionId (Id (id + 1)) (Id (id + 2)))]
+    let sInst2' = [returnedInstruction ((Id (id + 1))) (OpLabel)] ++ stackInst2 ++ [noReturnInstruction (OpBranch (Id (id + 3)))]
+    let sInst3' =
+          [returnedInstruction ((Id (id + 2))) (OpLabel)]
+            ++ stackInst3
+            ++ [noReturnInstruction (OpBranch (Id (id + 3)))]
+            ++ [returnedInstruction ((Id (id + 3))) (OpLabel)]
+    -- modify (\s -> s{idCount = id + 3})
+    -- TODO: handle return variable
+    return (var3, inst1 +++ inst2 +++ inst3, varInst1 ++ varInst2 ++ varInst3, sInst1' ++ sInst2' ++ sInst3')
 generateExprSt (Ast.ENeg _ e) =
   do
     (_er, inst1, varInst1, stackInst1) <- generateExprSt e
     let (ExprResult var) = _er
     (var', stackInst2) <- generateNegOpSt var
     return (ExprResult var', inst1, varInst1, stackInst1 ++ stackInst2)
-generateExprSt (Ast.EBinOp _ e1 op e2) = handleBinOpSt e1 op e2 -- TODO:
+generateExprSt (Ast.EBinOp _ e1 op e2) =
+  do
+    (_er, inst1, varInst1, stackInst1) <- generateExprSt e1
+    let ExprResult var1 = _er
+    (_er, inst2, varInst2, stackInst2) <- generateExprSt e2
+    let ExprResult var2 = _er
+    (var3, inst3, stackInst3) <- generateBinOpSt var1 op var2
+    return (ExprResult var3, inst1 +++ inst2 +++ inst3, varInst1 ++ varInst2, stackInst1 ++ stackInst2 ++ stackInst3)
 generateExprSt e@(Ast.EOp _ _) = do return (handleOp' e, mempty, [], [])
 generateExprSt (Ast.ELetIn _ decs e) =
   do
