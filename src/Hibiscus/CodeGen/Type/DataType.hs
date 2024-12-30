@@ -1,4 +1,4 @@
-module Hibiscus.Typing where
+module Hibiscus.CodeGen.Type.DataType where
 
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.List (intercalate)

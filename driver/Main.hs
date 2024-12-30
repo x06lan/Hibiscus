@@ -3,7 +3,8 @@ module Main where
 import Control.Monad (when)
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.Functor (void)
-import Hibiscus.CodeGen (defaultConfig, generate, instructionsToString)
+import Hibiscus.CodeGen.Type (defaultConfig)
+import Hibiscus.CodeGen (generate, instructionsToString)
 import Hibiscus.Lexer (runAlex)
 import Hibiscus.Parser (parseHibiscus)
 import Hibiscus.Type4plus (infer)

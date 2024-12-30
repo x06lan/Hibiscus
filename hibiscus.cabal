@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.37.0.
+-- This file has been generated from package.yaml by hpack version 0.35.2.
 --
 -- see: https://github.com/sol/hpack
 
@@ -18,7 +18,10 @@ library
       Hibiscus.Ast
       Hibiscus.Lexer
       Hibiscus.Parser
-      Hibiscus.Typing
+      Hibiscus.CodeGen.Type.DataType
+      Hibiscus.CodeGen.Type
+      Hibiscus.CodeGen.Util
+      Hibiscus.CodeGen.GenExpr
       Hibiscus.CodeGen
       Hibiscus.Asm
       Hibiscus.Type4plus
