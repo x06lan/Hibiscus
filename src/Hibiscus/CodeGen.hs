@@ -482,29 +482,24 @@ generateBinOp state v1@(e1, t1) op v2@(e2, t2) =
 
 -- TODO: Unfinished Monad-ise
 generateExprSt :: Expr -> State LanxSt (ExprReturn, Instructions,VariableInst, StackInst)
-generateExprSt e = state $ \s ->
-  let (s', er, inst, vi, si) = generateExpr s e
-   in ((er, inst, vi, si), s')
-
-generateExpr :: LanxSt -> Expr -> (LanxSt, ExprReturn, Instructions,VariableInst, StackInst)
-generateExpr state expr =
+generateExprSt expr =
   case expr of
-    Ast.EBool _ x         -> let ((v,i,si), s) = runState (handleConstSt (LBool x)) state in (s, v, i, [], si)
-    Ast.EInt _ x          -> let ((v,i,si), s) = runState (handleConstSt (LInt x)) state in (s, v, i, [], si)
-    Ast.EFloat _ x        -> let ((v,i,si), s) = runState (handleConstSt (LFloat x)) state in (s, v, i, [], si)
-    Ast.EList _ l         -> let ((er,i,vi,si),s) = runState (handleArraySt l) state in (s,er,i,vi,si)
-    Ast.EPar _ e          -> generateExpr state e
+    Ast.EBool _ x         -> handleConstSt (LBool x)
+    Ast.EInt _ x          -> handleConstSt (LInt x)
+    Ast.EFloat _ x        -> handleConstSt (LFloat x)
+    Ast.EList _ l         -> handleArraySt l
+    Ast.EPar _ e          -> generateExprSt e
     Ast.EVar (_, t1) (Ast.Name (_, _) name) ->
-                             let (s,v,i,si) = handleVar state t1 name in (s, v, i, [], si)
+                             handleVarSt t1 name
     Ast.EString _ _       -> error "String"
     Ast.EUnit _           -> error "Unit"
-    Ast.EApp _ e1 e2      -> handleApp state e1 e2
+    Ast.EApp _ e1 e2      -> handleAppSt e1 e2
     Ast.EIfThenElse _ e1 e2 e3 ->
-                             handleIfThenElse state e1 e2 e3
-    Ast.ENeg _ e          -> handleNeg state e
-    Ast.EBinOp _ e1 op e2 -> handleBinOp state e1 op e2
-    Ast.EOp _ _           -> let (s,v,i,si) = handleOp state expr in (s, v, i, [], si)
-    Ast.ELetIn _ decs e   -> handleLetIn state decs e
+                             handleIfThenElseSt e1 e2 e3
+    Ast.ENeg _ e          -> handleNegSt e
+    Ast.EBinOp _ e1 op e2 -> handleBinOpSt e1 op e2
+    Ast.EOp _ _           -> handleOpSt expr
+    Ast.ELetIn _ decs e   -> handleLetInSt decs e
 
 handleLetInSt ::[Dec] -> Expr -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
 handleLetInSt decs e =
@@ -524,8 +519,11 @@ handleLetIn state decs e =
   let ((er, i, vi, si), s') = runState (handleLetInSt decs e) state
    in (s', er, i, vi, si)
 
-handleConstSt :: Literal -> State LanxSt (ExprReturn, Instructions, StackInst)
-handleConstSt lit =
+handleConstSt :: Literal -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleConstSt lit = fmap (\(v,i,si) -> (v,i,[],si)) $ handleConstSt' lit
+
+handleConstSt' :: Literal -> State LanxSt (ExprReturn, Instructions, StackInst)
+handleConstSt' lit =
   do
     (id, inst) <- generateConstSt lit
     return (ExprResult (id, dtypeof lit), inst,[])
@@ -539,11 +537,9 @@ handleArraySt es =
     (typeId, typeInst) <- generateTypeSt (DTypeArray len DTypeUnknown)
     error "Not implemented array"
 
--- TODO: Unfinished Monad-ise
-handleOpSt :: Expr -> State LanxSt (ExprReturn, Instructions, StackInst)
-handleOpSt e = state $ \s ->
-  let (s', er, i,si) = handleOp s e
-   in ((er, i, si), s')
+-- NOTE: This function does not modify or read from the state.
+handleOpSt :: Expr -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleOpSt e = do return (handleOp' e, mempty, [], [])
 
 handleOp' :: Expr -> ExprReturn
 handleOp' (Ast.EOp _ op) =
@@ -562,6 +558,7 @@ handleOp' (Ast.EOp _ op) =
         Ast.Or _     -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
    in ExprApplication (OperatorFunction op) funcSign []
 
+-- NOTE: This function does not modify or read from the state.
 handleOp :: LanxSt -> Expr -> (LanxSt, ExprReturn, Instructions, StackInst)
 handleOp state e@(Ast.EOp _ op) =
   let er = handleOp' e
@@ -597,9 +594,13 @@ handleVarFunction state name (returnType, args) =
             -- case findResult state (ResultFunction name ) of {}
             _ -> error "Not implemented function"
 
+
+handleVarSt :: Type -> BS.ByteString -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleVarSt t1 n = fmap (\(v,i,si) -> (v,i,[],si)) $ handleVarSt' t1 n
+
 -- TODO: Unfinished Monad-ise
-handleVarSt :: Type -> BS.ByteString -> State LanxSt (ExprReturn, Instructions, StackInst)
-handleVarSt t1 n = state $ \s ->
+handleVarSt' :: Type -> BS.ByteString -> State LanxSt (ExprReturn, Instructions, StackInst)
+handleVarSt' t1 n = state $ \s ->
   let (s', er,i,si) = handleVar s t1 n
    in ((er,i,si), s')
 
@@ -625,7 +626,6 @@ handleVar state t1 n =
    in (state3, var, inst, stackInst)
   --  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
 
--- TODO: Unfinished Monad-ise
 handleAppSt :: Expr -> Expr -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
 handleAppSt e1 e2 =
   do
@@ -642,10 +642,10 @@ handleAppSt e1 e2 =
             case (length args', length argTypes) of
               (l, r) | l == r ->
                 case funcType of
-                  CustomFunction id s ->                                 applyFunctionSt id returnType args'
-                  TypeConstructor t   -> fmap (\(v,i,si)->(v,i,[],si)) $ handleConstructorSt t functionType args'
-                  TypeExtractor t int -> fmap (\(v,i,si)->(v,i,[],si)) $ handleExtractSt t int (head args')
-                  OperatorFunction op -> error "Not implemented" -- todo
+                  CustomFunction id s -> applyFunctionSt id returnType args'
+                  TypeConstructor t   -> handleConstructorSt t functionType args'
+                  TypeExtractor t int -> handleExtractSt t int (head args')
+                  OperatorFunction op -> error "Not implemented" -- TODO:
               (l, r) | l < r -> -- uncompleted applicatoin
                 return $ (ExprApplication funcType (returnType, argTypes) args', mempty, [],[])
               (l, r) | l > r -> error "Too many arguments"
@@ -661,8 +661,11 @@ handleApp state e1 e2 =
   let ((v,i,vi,si), s') = runState (handleAppSt e1 e2) state
    in (s',v,i,vi,si)
 
-handleConstructorSt :: DataType -> DataType -> [Variable] -> State LanxSt (ExprReturn, Instructions, StackInst)
-handleConstructorSt returnType functionType args =
+handleConstructorSt :: DataType -> DataType -> [Variable] -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleConstructorSt rt ft args = fmap (\(v,i,si) -> (v,i,[],si)) $ handleConstructorSt' rt ft args
+
+handleConstructorSt' :: DataType -> DataType -> [Variable] -> State LanxSt (ExprReturn, Instructions, StackInst)
+handleConstructorSt' returnType functionType args =
   do
     (typeId, inst) <- generateTypeSt returnType
     modify (\s -> s{idCount = idCount s + 1})
@@ -670,8 +673,11 @@ handleConstructorSt returnType functionType args =
     let stackInst = [returnedInstruction (returnId) (OpCompositeConstruct typeId (ShowList (map fst args)))]
     return (ExprResult (returnId, returnType), inst, stackInst)
 
-handleExtractSt :: DataType -> [Int] -> Variable -> State LanxSt (ExprReturn, Instructions, StackInst)
-handleExtractSt returnType i var@(opId, _) =
+handleExtractSt :: DataType -> [Int] -> Variable -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleExtractSt rt i var = fmap (\(v,i,si) -> (v,i,[],si)) $ handleExtractSt' rt i var
+
+handleExtractSt' :: DataType -> [Int] -> Variable -> State LanxSt (ExprReturn, Instructions, StackInst)
+handleExtractSt' returnType i var@(opId, _) =
   do
     (typeId, inst) <- generateTypeSt returnType
     modify (\s -> s{idCount = idCount s + 1})
@@ -707,11 +713,17 @@ applyFunctionSt id returnType args =
     -- state' = state {idCount = idCount state + 1}
     return (ExprResult (resultId, returnType), inst1, varInst, stackInst ++ [stackInst'])
 
+-- TODO: Unfinished Monad-ise
+handleIfThenElseSt :: Expr -> Expr -> Expr -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleIfThenElseSt e1 e2 e3 = state $ \state ->
+  let (s',v,i,vi,si) = handleIfThenElse state e1 e2 e3
+   in ((v,i,vi,si), s')
+
 handleIfThenElse :: LanxSt -> Expr -> Expr -> Expr -> (LanxSt, ExprReturn, Instructions, VariableInst, StackInst)
 handleIfThenElse state e1 e2 e3 =
-  let (state1, ExprResult var1, inst1,varInst1, stackInst1) = generateExpr state e1
-      (state2, var2, inst2,varInst2, stackInst2) = generateExpr state1 e2
-      (state3, var3, inst3,varInst3, stackInst3) = generateExpr state2 e3
+  let ((ExprResult var1, inst1,varInst1, stackInst1), state1) = runState (generateExprSt e1) state
+      ((var2, inst2,varInst2, stackInst2), state2) = runState (generateExprSt e2) state1
+      ((var3, inst3,varInst3, stackInst3), state3) = runState (generateExprSt e3) state2
       conditionId = case var1 of
         (id, DTypeBool) -> id
         _ -> error "Expected bool"
@@ -729,16 +741,24 @@ handleIfThenElse state e1 e2 e3 =
 
 -- error "Not implemented if then else"
 
-handleNeg :: LanxSt -> Expr -> (LanxSt, ExprReturn, Instructions,VariableInst ,StackInst)
-handleNeg state e =
-  let (state1, ExprResult var, inst1,varInst1, stackInst1) = generateExpr state e
-      ((var', stackInst2), state2) = runState (generateNegOpSt var) state1
-   in (state2, ExprResult var', inst1,varInst1 ,stackInst1 ++ stackInst2)
+handleNegSt :: Expr -> State LanxSt (ExprReturn, Instructions,VariableInst ,StackInst)
+handleNegSt e =
+  do
+    (_er, inst1, varInst1, stackInst1) <- generateExprSt e
+    let (ExprResult var) = _er
+    (var', stackInst2) <- generateNegOpSt var
+    return (ExprResult var', inst1, varInst1, stackInst1 ++ stackInst2)
+
+-- TODO: Unfinished Monad-ise
+handleBinOpSt :: Expr -> Ast.Op (Range, Type) -> Expr -> State LanxSt (ExprReturn, Instructions,VariableInst, StackInst)
+handleBinOpSt e1 op e2 = state $ \state ->
+  let (s',v,i,vi,si) = handleBinOp state e1 op e2
+   in ((v,i,vi,si), s')
 
 handleBinOp :: LanxSt -> Expr -> Ast.Op (Range, Type) -> Expr -> (LanxSt, ExprReturn, Instructions,VariableInst, StackInst)
 handleBinOp state e1 op e2 =
-  let (state1, ExprResult var1, inst1,varInst1, stackInst1) = generateExpr state e1
-      (state2, ExprResult var2, inst2,varInst2, stackInst2) = generateExpr state1 e2
+  let ((ExprResult var1, inst1,varInst1, stackInst1), state1) = runState (generateExprSt e1) state
+      ((ExprResult var2, inst2,varInst2, stackInst2), state2) = runState (generateExprSt e2) state1
       (state3, var3, inst3, stackInst3) = generateBinOp state2 var1 op var2
    in (state3, ExprResult var3, inst1 +++ inst2 +++ inst3,varInst1++varInst2, stackInst1 ++ stackInst2 ++ stackInst3)
 
