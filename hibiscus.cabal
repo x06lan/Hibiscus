@@ -21,6 +21,7 @@ library
       Hibiscus.CodeGen.Type.DataType
       Hibiscus.CodeGen.Type
       Hibiscus.CodeGen.Util
+      Hibiscus.CodeGen.GenExpr
       Hibiscus.CodeGen
       Hibiscus.Asm
       Hibiscus.Type4plus
