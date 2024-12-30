@@ -18,7 +18,7 @@ library
       Hibiscus.Ast
       Hibiscus.Lexer
       Hibiscus.Parser
-      Hibiscus.Typing
+      Hibiscus.CodeGen.Type.DataType
       Hibiscus.CodeGen
       Hibiscus.Asm
       Hibiscus.Type4plus

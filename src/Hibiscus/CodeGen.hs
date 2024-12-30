@@ -18,7 +18,7 @@ import Hibiscus.Asm
 import qualified Hibiscus.Ast as Ast
 import Hibiscus.Lexer
 import Hibiscus.Parser
-import Hibiscus.Typing
+import Hibiscus.CodeGen.Type.DataType
 
 import qualified Hibiscus.Type4plus as TI -- type infer
 
