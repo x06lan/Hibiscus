@@ -31,6 +31,8 @@ import Hibiscus.Util (foldMaplM, foldMaprM)
 import Hibiscus.CodeGen.Type
 
 
+type VeryImportantTuple = (ExprReturn, Instructions, VariableInst, StackInst)
+
 ----- Below are used by a lot of place
 
 -- TODO: Unfinished Monad-ise
@@ -425,8 +427,8 @@ handleExtractSt returnType i var@(opId, _) =
 
 ----- Below are stateless
 
-handleOp' :: Expr -> ExprReturn
-handleOp' (Ast.EOp _ op) =
+handleOp' :: Ast.Op (Range, Type) -> ExprReturn
+handleOp' op =
   let funcSign = case op of
         Ast.Plus _   -> (DTypeUnknown, [DTypeUnknown, DTypeUnknown])
         Ast.Minus _  -> (DTypeUnknown, [DTypeUnknown])
@@ -474,8 +476,8 @@ generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name)) =
                 let ExprResult (varId, varType) = fromMaybe (error . show $ idMap state) (findResult state (ResultVariable (env state, BS.unpack name, dType)))
                 _er <- insertResultSt (ResultVariableValue (env state, BS.unpack name, dType)) Nothing
                 let ExprResult (valueId, _) = _er
-                state2 <- get
-                let inst = returnedInstruction (valueId) (OpLoad (searchTypeId state2 varType) varId)
+                searchTypeId_state2_varType <- gets (\s -> searchTypeId s varType) -- FIXME: please rename this
+                let inst = returnedInstruction (valueId) (OpLoad (searchTypeId_state2_varType) varId)
                 return (ExprResult (valueId, varType), mempty, [inst])
     --  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
     return (var, inst, [], stackInst)
@@ -544,7 +546,7 @@ generateExprSt (Ast.EBinOp _ e1 op e2) =
     let ExprResult var2 = _er
     (var3, inst3, stackInst3) <- generateBinOpSt var1 op var2
     return (ExprResult var3, inst1 +++ inst2 +++ inst3, varInst1 ++ varInst2, stackInst1 ++ stackInst2 ++ stackInst3)
-generateExprSt e@(Ast.EOp _ _) = do return (handleOp' e, mempty, [], [])
+generateExprSt (Ast.EOp _ op) = do return (handleOp' op, mempty, [], [])
 generateExprSt (Ast.ELetIn _ decs e) =
   do
     (envs, envType) <- gets env

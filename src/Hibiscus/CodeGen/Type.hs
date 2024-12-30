@@ -70,8 +70,6 @@ type ResultMap = Map.Map ResultType ExprReturn
 type VariableInst = [Instruction]
 type StackInst = [Instruction]
 
-type VeryImportantTuple = (ExprReturn, Instructions, VariableInst, StackInst)
-
 data Config = Config
   { capability :: Capability
   , extension :: String
