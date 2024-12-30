@@ -71,6 +71,8 @@ type ResultMap = Map.Map ResultType ExprReturn
 type VariableInst= [Instruction]
 type StackInst= [Instruction]
 
+type VeryImportantTuple = (ExprReturn, Instructions, VariableInst, StackInst)
+
 
 data Config = Config
   { capability :: Capability
@@ -480,7 +482,6 @@ generateBinOp state v1@(e1, t1) op v2@(e2, t2) =
           _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
    in (state', (id, resultType), emptyInstructions, [instruction])
 
--- TODO: Unfinished Monad-ise
 generateExprSt :: Expr -> State LanxSt (ExprReturn, Instructions,VariableInst, StackInst)
 generateExprSt expr =
   case expr of
@@ -501,7 +502,7 @@ generateExprSt expr =
     Ast.EOp _ _           -> handleOpSt expr
     Ast.ELetIn _ decs e   -> handleLetInSt decs e
 
-handleLetInSt ::[Dec] -> Expr -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleLetInSt ::[Dec] -> Expr -> State LanxSt VeryImportantTuple
 handleLetInSt decs e =
   do
     (envs, envType) <- gets env
@@ -519,7 +520,7 @@ handleLetIn state decs e =
   let ((er, i, vi, si), s') = runState (handleLetInSt decs e) state
    in (s', er, i, vi, si)
 
-handleConstSt :: Literal -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleConstSt :: Literal -> State LanxSt VeryImportantTuple
 handleConstSt lit = fmap (\(v,i,si) -> (v,i,[],si)) $ handleConstSt' lit
 
 handleConstSt' :: Literal -> State LanxSt (ExprReturn, Instructions, StackInst)
@@ -528,7 +529,7 @@ handleConstSt' lit =
     (id, inst) <- generateConstSt lit
     return (ExprResult (id, dtypeof lit), inst,[])
 
-handleArraySt :: [Expr] -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleArraySt :: [Expr] -> State LanxSt VeryImportantTuple
 handleArraySt es =
   do
     let len = length es
@@ -538,7 +539,7 @@ handleArraySt es =
     error "Not implemented array"
 
 -- NOTE: This function does not modify or read from the state.
-handleOpSt :: Expr -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleOpSt :: Expr -> State LanxSt VeryImportantTuple
 handleOpSt e = do return (handleOp' e, mempty, [], [])
 
 handleOp' :: Expr -> ExprReturn
@@ -594,39 +595,36 @@ handleVarFunction state name (returnType, args) =
             -- case findResult state (ResultFunction name ) of {}
             _ -> error "Not implemented function"
 
-
-handleVarSt :: Type -> BS.ByteString -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleVarSt :: Type -> BS.ByteString -> State LanxSt VeryImportantTuple
 handleVarSt t1 n = fmap (\(v,i,si) -> (v,i,[],si)) $ handleVarSt' t1 n
 
--- TODO: Unfinished Monad-ise
 handleVarSt' :: Type -> BS.ByteString -> State LanxSt (ExprReturn, Instructions, StackInst)
-handleVarSt' t1 n = state $ \s ->
-  let (s', er,i,si) = handleVar s t1 n
-   in ((er,i,si), s')
-
-handleVar :: LanxSt -> Type-> BS.ByteString -> (LanxSt, ExprReturn, Instructions, StackInst)
-handleVar state t1 n =
-  let dType = typeConvert t1
-      (state3, var, inst, stackInst) = case dType of
-        DTypeFunction return args ->
-          -- function variable
-          handleVarFunction state (BS.unpack n) (return, args)
-        _ ->
-          -- value variable
+handleVarSt' t1 n =
+  do
+    let dType = typeConvert t1
+    (var, inst, stackInst) <-
+      case dType of
+        DTypeFunction returnT args -> handleVarFunctionSt (BS.unpack n) (returnT, args)
+        _ -> do
+          state <- get
           let maybeResult = findResult state (ResultVariableValue (env state, BS.unpack n, dType))
-             in case maybeResult of
-                  Just x -> (state, x, emptyInstructions, [])
-                  Nothing ->
-                    -- let ExprResult (varId, varType) = fromMaybe (error ("can find var:" ++ show (env state, BS.unpack n, dType))) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
-                    let ExprResult (varId, varType) = fromMaybe (error (show (idMap state))) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
-                        (ExprResult (valueId, _), state2) = runState (insertResultSt (ResultVariableValue (env state, BS.unpack n, dType)) Nothing) state
-                        inst = [returnedInstruction (valueId) ( OpLoad (searchTypeId state2 varType) varId)]
-                    in (state2, ExprResult (valueId, varType), emptyInstructions, inst)
+          case maybeResult of
+              Just x -> return (x, mempty, [])
+              Nothing ->
+                do
+                  state <- get
+                  -- let ExprResult (varId, varType) = fromMaybe (error ("can find var:" ++ show (env state, BS.unpack n, dType))) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
+                  let ExprResult (varId, varType) = fromMaybe (error . show $ idMap state) (findResult state (ResultVariable (env state, BS.unpack n, dType)))
+                  _er <- insertResultSt (ResultVariableValue (env state, BS.unpack n, dType)) Nothing
+                  let ExprResult (valueId, _) = _er
+                  state2 <- get
+                  let inst = returnedInstruction (valueId) (OpLoad (searchTypeId state2 varType) varId)
+                  return (ExprResult (valueId, varType), mempty, [inst])
   --  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
-   in (state3, var, inst, stackInst)
+    return (var, inst, stackInst)
   --  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
 
-handleAppSt :: Expr -> Expr -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleAppSt :: Expr -> Expr -> State LanxSt VeryImportantTuple
 handleAppSt e1 e2 =
   do
     (var1, inst1, varInst1,stackInst1) <- generateExprSt e1
@@ -661,7 +659,7 @@ handleApp state e1 e2 =
   let ((v,i,vi,si), s') = runState (handleAppSt e1 e2) state
    in (s',v,i,vi,si)
 
-handleConstructorSt :: DataType -> DataType -> [Variable] -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleConstructorSt :: DataType -> DataType -> [Variable] -> State LanxSt VeryImportantTuple
 handleConstructorSt rt ft args = fmap (\(v,i,si) -> (v,i,[],si)) $ handleConstructorSt' rt ft args
 
 handleConstructorSt' :: DataType -> DataType -> [Variable] -> State LanxSt (ExprReturn, Instructions, StackInst)
@@ -673,7 +671,7 @@ handleConstructorSt' returnType functionType args =
     let stackInst = [returnedInstruction (returnId) (OpCompositeConstruct typeId (ShowList (map fst args)))]
     return (ExprResult (returnId, returnType), inst, stackInst)
 
-handleExtractSt :: DataType -> [Int] -> Variable -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleExtractSt :: DataType -> [Int] -> Variable -> State LanxSt VeryImportantTuple
 handleExtractSt rt i var = fmap (\(v,i,si) -> (v,i,[],si)) $ handleExtractSt' rt i var
 
 handleExtractSt' :: DataType -> [Int] -> Variable -> State LanxSt (ExprReturn, Instructions, StackInst)
@@ -696,7 +694,7 @@ applyFunctionSt_aux1 (typeId, t) =
       [returnedInstruction (varId) (OpVariable typeId Function)],
       [noReturnInstruction (OpStore varId (fst t))])
 
-applyFunctionSt :: OpId -> DataType -> [Variable] -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+applyFunctionSt :: OpId -> DataType -> [Variable] -> State LanxSt VeryImportantTuple
 applyFunctionSt id returnType args =
   do
     searchTypeId_state0_returnType <- gets (\s -> searchTypeId s returnType) -- FIXME: please rename this
@@ -714,7 +712,7 @@ applyFunctionSt id returnType args =
     return (ExprResult (resultId, returnType), inst1, varInst, stackInst ++ [stackInst'])
 
 -- TODO: Unfinished Monad-ise
-handleIfThenElseSt :: Expr -> Expr -> Expr -> State LanxSt (ExprReturn, Instructions, VariableInst, StackInst)
+handleIfThenElseSt :: Expr -> Expr -> Expr -> State LanxSt VeryImportantTuple
 handleIfThenElseSt e1 e2 e3 = state $ \state ->
   let (s',v,i,vi,si) = handleIfThenElse state e1 e2 e3
    in ((v,i,vi,si), s')
@@ -750,7 +748,7 @@ handleNegSt e =
     return (ExprResult var', inst1, varInst1, stackInst1 ++ stackInst2)
 
 -- TODO: Unfinished Monad-ise
-handleBinOpSt :: Expr -> Ast.Op (Range, Type) -> Expr -> State LanxSt (ExprReturn, Instructions,VariableInst, StackInst)
+handleBinOpSt :: Expr -> Ast.Op (Range, Type) -> Expr -> State LanxSt VeryImportantTuple
 handleBinOpSt e1 op e2 = state $ \state ->
   let (s',v,i,vi,si) = handleBinOp state e1 op e2
    in ((v,i,vi,si), s')
