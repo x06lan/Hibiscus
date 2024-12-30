@@ -15,9 +15,9 @@ library:
     - Hibiscus.Lexer
     - Hibiscus.Parser
     - Hibiscus.CodeGen.Type.DataType
+    - Hibiscus.CodeGen.Type
     - Hibiscus.CodeGen
     - Hibiscus.Asm
-    # - Hibiscus.Type2
     - Hibiscus.Type4plus
   dependencies:
     - array
