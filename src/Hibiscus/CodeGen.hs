@@ -19,6 +19,7 @@ import qualified Hibiscus.Ast as Ast
 import Hibiscus.Lexer
 import Hibiscus.Parser
 import Hibiscus.CodeGen.Type.DataType
+import Hibiscus.CodeGen.Util
 
 import qualified Hibiscus.Type4plus as TI -- type infer
 
@@ -29,37 +30,6 @@ import Hibiscus.Util (foldMaplM, foldMaprM)
 
 import Hibiscus.CodeGen.Type
 
-findResult' :: ResultType -> ResultMap -> Maybe ExprReturn
-findResult' (ResultVariable ((envs, envType), name, varType)) viIdMap =
-  -- find variable up to the mother env
-  let param = (viIdMap, envType, name, varType)
-   in getFirst . fst $ runState (foldMaplM (aux param) envs) []
- where
-  aux :: (ResultMap, DataType, String, DataType) -> String -> State [String] (First ExprReturn)
-  aux (viIdMap, envType, name, varType) env =
-    do
-      acc_env <- get
-      let result = Map.lookup (ResultVariable ((acc_env ++ [env], envType), name, varType)) viIdMap
-      put (acc_env ++ [env])
-      return $ First result
-findResult' (ResultVariableValue ((envs, envType), name, varType)) viIdMap =
-  -- find variable up to the mother env
-  let param = (viIdMap, envType, name, varType)
-   in getFirst . fst $ runState (foldMaplM (aux param) envs) []
- where
-  aux :: (ResultMap, DataType, String, DataType) -> String -> State [String] (First ExprReturn)
-  aux (viIdMap, envType, name, varType) env =
-    do
-      acc_env <- get
-      let result = Map.lookup (ResultVariableValue ((acc_env ++ [env], envType), name, varType)) viIdMap
-      put (acc_env ++ [env])
-      return $ First result
-findResult' key viIdMap = Map.lookup key viIdMap
-
-findResult :: LanxSt -> ResultType -> Maybe ExprReturn
-findResult s key =
-  let viIdMap = idMap s -- very important idMap
-   in findResult' key viIdMap
 
 insertResultSt :: ResultType -> Maybe ExprReturn -> State LanxSt (ExprReturn)
 insertResultSt key maybeER = do
@@ -112,12 +82,6 @@ generateEntry state key =
               result = ExprResult var
            in (Map.insert key result currentMap, result, currentCount)
 
-searchTypeId :: LanxSt -> DataType -> OpId
-searchTypeId s dt = case findResult s (ResultDataType dt) of
-  Just x -> case x of
-    ExprResult (id, _) -> id
-    _ -> error (show dt ++ " type not found")
-  Nothing -> error (show dt ++ " type not found")
 
 generateTypeSt_aux1 :: DataType -> State LanxSt (Instructions)
 generateTypeSt_aux1 dType = do
@@ -744,33 +708,6 @@ generateMainFunctionSt inst cfg (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     let inst4 = inst +++ inst1 +++ inst2 +++ inst3
     let inst5 = inst4{functionFields = functionFields inst4 ++ [funcInst]}
     return inst5
-
-findDec' :: String -> Maybe FunctionSignature -> [Dec] -> Maybe Dec
-findDec' name maybeFS = find' aux
- where
-  aux = case maybeFS of
-    Nothing ->
-      ( \case
-          Ast.Dec _ (Ast.Name _ n) _ _ -> n == BS.pack name
-          _ -> False
-      )
-    Just (_, argTs) ->
-      ( \case
-          Ast.Dec _ (Ast.Name _ n) args' _ ->
-            let argTs' = map (typeConvert . TI.getType) args'
-             in n == BS.pack name && argTs == argTs
-          _ -> False
-      )
-  find' :: (a -> Bool) -> [a] -> Maybe a
-  find' p xs =
-    case filter p xs of
-      [v] -> Just v
-      [] -> Nothing
-      _ -> error "found multiple result, perhaps you want to use `find`"
-
--- search dec by name and function signature
-findDec :: [Dec] -> String -> Maybe FunctionSignature -> Maybe Dec
-findDec decs n mfs = findDec' n mfs decs
 
 flattenFunctionInst :: FunctionInst -> [Instruction]
 flattenFunctionInst func =

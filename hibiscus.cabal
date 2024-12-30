@@ -20,6 +20,7 @@ library
       Hibiscus.Parser
       Hibiscus.CodeGen.Type.DataType
       Hibiscus.CodeGen.Type
+      Hibiscus.CodeGen.Util
       Hibiscus.CodeGen
       Hibiscus.Asm
       Hibiscus.Type4plus
