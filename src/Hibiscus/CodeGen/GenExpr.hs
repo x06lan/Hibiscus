@@ -35,46 +35,36 @@ type VeryImportantTuple = (ExprReturn, Instructions, VariableInst, StackInst)
 
 ----- Below are used by a lot of place
 
--- TODO: Unfinished Monad-ise
 -- Helper function to generate a new entry for the IdType
 -- used by insertResultSt
 generateEntrySt :: ResultType -> State LanxSt (ExprReturn)
-generateEntrySt key = state $ \s ->
-  let (newMap, newId, newCount) = generateEntry s key
-      s' = s{idMap = newMap, idCount = newCount}
-   in (newId, s')
-
--- Helper function to generate a new entry for the IdType
-generateEntry :: LanxSt -> ResultType -> (ResultMap, ExprReturn, Int)
-generateEntry state key =
-  let currentMap = idMap state
-      currentCount = idCount state
-   in case key of
-        ResultDataType t ->
-          let var = (IdName (show t), t)
-              result = ExprResult var
-           in (Map.insert key result currentMap, result, currentCount)
-        ResultConstant l ->
-          let var = case l of
-                LBool b -> (IdName ("bool_" ++ show b), DTypeBool)
-                LUint i -> (IdName ("uint_" ++ show i), uint32)
-                LInt i -> (IdName ("int_" ++ show i), int32)
-                LFloat f -> (IdName ("float_" ++ map (\c -> if c == '.' then '_' else c) (show f)), float32)
-              result = ExprResult var
-           in (Map.insert key result currentMap, result, currentCount)
-        ResultVariable ((envs, envType), name, varType) ->
-          let var = (IdName (intercalate "_" (envs ++ [name])), varType)
-              result = ExprResult var
-           in (Map.insert key result currentMap, result, currentCount)
-        ResultVariableValue ((envName, envType), s, varType) ->
-          let var = (Id (currentCount + 1), varType)
-              result = ExprResult var
-           in (Map.insert key result currentMap, result, currentCount + 1)
-        ResultFunction s (return, args) ->
-          let t = DTypeFunction return args
-              var = (IdName (intercalate "_" (s : map show args)), t)
-              result = ExprResult var
-           in (Map.insert key result currentMap, result, currentCount)
+generateEntrySt key =
+  let
+    returnAndUpdateMap :: ExprReturn -> State LanxSt (ExprReturn)
+    returnAndUpdateMap er = do
+      modify (\s -> s{idMap = Map.insert key er $ idMap s})
+      return er
+   in
+    case key of
+      ResultDataType t -> do
+        returnAndUpdateMap $ ExprResult (IdName $ show t, t)
+      ResultConstant lit -> do
+        let opid = IdName . idNameOf $ lit
+        let litType = dtypeof lit
+        returnAndUpdateMap $ ExprResult (opid, litType)
+      ResultVariable ((envs, _), name, varType) -> do
+        let nameWithEnv = intercalate "_" (envs ++ [name])
+        let opid = IdName nameWithEnv
+        returnAndUpdateMap $ ExprResult (opid, varType)
+      ResultVariableValue (_, _, varType) -> do
+        currentCount <- gets idCount
+        let var = (Id (currentCount + 1), varType)
+        modify (\s -> s{idCount = idCount s + 1})
+        returnAndUpdateMap $ ExprResult var
+      ResultFunction s (returnT, args) -> do
+        let opid = IdName $ intercalate "_" (s : map show args)
+        let t = DTypeFunction returnT args
+        returnAndUpdateMap $ ExprResult (opid, t)
 
 -- used by a lot of place
 insertResultSt :: ResultType -> Maybe ExprReturn -> State LanxSt (ExprReturn)
@@ -86,8 +76,7 @@ insertResultSt key maybeER = do
       case maybeER of
         Nothing -> generateEntrySt key
         Just value -> do
-          let newMap = Map.insert key value (idMap state)
-          put $ state{idMap = newMap}
+          modify (\s -> s{idMap = Map.insert key value $ idMap s})
           return value
 
 generateTypeSt_aux1 :: DataType -> State LanxSt (Instructions)

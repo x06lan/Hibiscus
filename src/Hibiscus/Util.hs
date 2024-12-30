@@ -20,3 +20,6 @@ foldMaplM f = foldlM aux mempty
 -- If you don't care about the process order of the monad (state)
 foldMapM :: (Foldable t, Monad m, Monoid b) => (a -> m b) -> t a -> m b
 foldMapM = foldMaplM
+
+replace :: Char -> Char -> String -> String
+replace old new = map (\c -> if c == old then new else c) 

@@ -19,6 +19,7 @@ import qualified Hibiscus.Ast as Ast
 import Hibiscus.Lexer
 import Hibiscus.Parser
 import Hibiscus.CodeGen.Type.DataType
+import Hibiscus.Util (replace)
 
 import qualified Hibiscus.Type4plus as TI -- type infer
 
@@ -169,6 +170,13 @@ dtypeof (LBool _)  = bool
 dtypeof (LUint _)  = uint32
 dtypeof (LInt _)   = int32
 dtypeof (LFloat _) = float32
+
+idNameOf :: Literal -> String
+idNameOf l = case l of
+  LBool b  -> "bool_"  ++ show b
+  LUint u  -> "uint_"  ++ show u
+  LInt i   -> "int_"   ++ show i
+  LFloat f -> "float_" ++ replace '.' '_' (show f)
 
 -- FIXME: AFAIK, Instructions don’t actually form a Monoid.
 --        However, since most folds are associative, I created this instance
