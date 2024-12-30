@@ -30,6 +30,11 @@ import Hibiscus.Util (foldMaplM, foldMaprM)
 
 import Hibiscus.CodeGen.Type
 
+
+----- Below are used by a lot of place
+
+-- TODO: Unfinished Monad-ise
+-- Helper function to generate a new entry for the IdType
 -- used by insertResultSt
 generateEntrySt :: ResultType -> State LanxSt (ExprReturn)
 generateEntrySt key = state $ \s ->
@@ -154,18 +159,7 @@ generateTypeSt dType = do
       inst3 <- generateTypeSt_aux2 dType typeId
       return (typeId, inst +++ inst3)
 
--- used by handleConstSt
-generateConstSt :: Literal -> State LanxSt (OpId, Instructions)
-generateConstSt v = do
-  let dtype = dtypeof v
-  (typeId, typeInst) <- generateTypeSt dtype
-  er <- insertResultSt (ResultConstant v) Nothing
-  let (ExprResult (constId, dType)) = er
-  let constInstruction = [returnedInstruction constId (OpConstant typeId v)]
-  let inst = typeInst{constFields = constFields typeInst ++ constInstruction}
-  return (constId, inst)
-
------ Belows are NegOp/BinOp lookup maps (I might wrong)
+----- Below are NegOp/BinOp lookup maps (I might wrong)
 
 -- used by generateExprSt (Ast.ENeg _ e)
 generateNegOpSt :: Variable -> State LanxSt (Variable, StackInst)
@@ -254,7 +248,7 @@ generateBinOp state v1@(e1, t1) op v2@(e2, t2) =
           _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
    in (state', (id, resultType), emptyInstructions, [instruction])
 
------
+----- Below are directly used by generateExprSt
 
 -- fold aux used by generateExprSt (Ast.ELetIn _ decs e)
 generateDecSt :: Dec -> State LanxSt (Instructions, VariableInst, StackInst)
@@ -362,7 +356,26 @@ handleVarFunctionSt name (returnType, args) =
           -- case findResult state (ResultFunction name ) of {}
           _ -> error "Not implemented function"
 
------ Belows are use by generateExprSt (Ast.EApp _ e1 e2)
+-- used by handleConstSt
+-- used by generateExprSt literals
+generateConstSt :: Literal -> State LanxSt (OpId, Instructions)
+generateConstSt v = do
+  let dtype = dtypeof v
+  (typeId, typeInst) <- generateTypeSt dtype
+  er <- insertResultSt (ResultConstant v) Nothing
+  let (ExprResult (constId, dType)) = er
+  let constInstruction = [returnedInstruction constId (OpConstant typeId v)]
+  let inst = typeInst{constFields = constFields typeInst ++ constInstruction}
+  return (constId, inst)
+
+-- used by generateExprSt literals
+handleConstSt :: Literal -> State LanxSt VeryImportantTuple
+handleConstSt lit =
+  do
+    (id, inst) <- generateConstSt lit
+    return (ExprResult (id, dtypeof lit), inst, [], [])
+
+----- Below are use by generateExprSt (Ast.EApp _ e1 e2)
 
 applyFunctionSt_aux1 :: (OpId, (OpId, b)) -> State LanxSt ([(OpId, (OpId, b))], [Instruction], [Instruction])
 applyFunctionSt_aux1 (typeId, t) =
@@ -410,13 +423,7 @@ handleExtractSt returnType i var@(opId, _) =
     let stackInst = [returnedInstruction (returnId) (OpCompositeExtract typeId opId (ShowList i))]
     return (ExprResult (returnId, returnType), inst, [], stackInst)
 
------ Belows are directly use by generateExprSt
-
-handleConstSt :: Literal -> State LanxSt VeryImportantTuple
-handleConstSt lit =
-  do
-    (id, inst) <- generateConstSt lit
-    return (ExprResult (id, dtypeof lit), inst, [], [])
+----- Below are stateless
 
 handleOp' :: Expr -> ExprReturn
 handleOp' (Ast.EOp _ op) =
