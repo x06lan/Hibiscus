@@ -45,7 +45,7 @@ generateEntrySt key =
       modify (\s -> s{idMap = Map.insert key er $ idMap s})
       return er
     flattenTuples :: [(a, b)] -> [a]
-    flattenTuples = concatMap (\(x, y) -> [x]) -- HOTFIX
+    flattenTuples = concatMap (\(x, y) -> [x]) -- FIXME: just a hotfix makes compiler happy for now
    in
     case key of
       ResultDataType t -> do
@@ -55,7 +55,7 @@ generateEntrySt key =
         let litType = dtypeof lit
         returnAndUpdateMap $ ExprResult (opid, litType)
       ResultVariable (envs, name, varType) -> do
-        let nameWithEnv = intercalate "_" (flattenTuples envs ++ [name])
+        let nameWithEnv = intercalate "_" (map fst envs ++ [name])
         let opid = IdName nameWithEnv
         returnAndUpdateMap $ ExprResult (opid, varType)
       ResultVariableValue (_, _, varType) -> do
