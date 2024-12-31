@@ -86,12 +86,12 @@ generateTypeSt_aux1 dType = do
     DTypeInt _   -> return emptyInstructions
     DTypeUInt _  -> return emptyInstructions
     DTypeFloat _ -> return emptyInstructions
-    DTypeVector _ baseType  -> do (_, inst) <- generateTypeSt baseType; return inst
-    DTypeMatrix _ baseType  -> do (_, inst) <- generateTypeSt baseType; return inst
-    DTypeArray _ baseType   -> do (_, inst) <- generateTypeSt baseType; return inst
-    DTypePointer _ baseType -> do (_, inst) <- generateTypeSt baseType; return inst
-    DTypeStruct _ fields              -> foldMaplM (\field -> do (_, inst) <- generateTypeSt field;                     return inst) fields
-    DTypeFunction returnType argsType -> foldMaplM (\t ->     do (_, inst) <- generateTypeSt (DTypePointer Function t); return inst) (returnType : argsType)
+    DTypeVector _ baseType  -> fmap snd . generateTypeSt $ baseType
+    DTypeMatrix _ baseType  -> fmap snd . generateTypeSt $ baseType
+    DTypeArray _ baseType   -> fmap snd . generateTypeSt $ baseType
+    DTypePointer _ baseType -> fmap snd . generateTypeSt $ baseType
+    DTypeStruct _ fields              -> foldMaplM (fmap snd . generateTypeSt) fields
+    DTypeFunction returnType argsType -> foldMaplM (fmap snd . generateTypeSt . DTypePointer Function) (returnType : argsType)
 
 generateTypeSt_aux2 :: DataType -> ResultId -> State LanxSt (Instructions)
 generateTypeSt_aux2 dType typeId = state $ \state2 ->
@@ -460,7 +460,7 @@ generateExprSt (Ast.EList _ es) =
     let makeAssociative (a, b, c, d) = ([a], b, c, d)
     (results, inst, var, stackInst) <- foldMaplM (fmap makeAssociative . generateExprSt) es
     (typeId, typeInst) <- generateTypeSt (DTypeArray len DTypeUnknown)
-    error "Not implemented array"
+    error "Not implemented array" -- TODO: EList
 generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name)) =
   do
     state <- get
