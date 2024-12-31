@@ -361,9 +361,8 @@ handleVarFunctionSt name (returnType, args) =
           -- case findResult state (ResultFunction name ) of {}
           _ -> error "Not implemented function"
 
--- used by handleConstSt
 -- used by generateExprSt literals
-generateConstSt :: Literal -> State LanxSt (OpId, Instructions)
+generateConstSt :: Literal -> State LanxSt VeryImportantTuple
 generateConstSt v = do
   let dtype = dtypeof v
   (typeId, typeInst) <- generateTypeSt dtype
@@ -371,14 +370,7 @@ generateConstSt v = do
   let (ExprResult (constId, dType)) = er
   let constInstruction = [returnedInstruction constId (OpConstant typeId v)]
   let inst = typeInst{constFields = constFields typeInst ++ constInstruction}
-  return (constId, inst)
-
--- used by generateExprSt literals
-handleConstSt :: Literal -> State LanxSt VeryImportantTuple
-handleConstSt lit =
-  do
-    (id, inst) <- generateConstSt lit
-    return (ExprResult (id, dtypeof lit), inst, [], [])
+  return (ExprResult (constId, dtype), inst, [], [])
 
 ----- Below are use by generateExprSt (Ast.EApp _ e1 e2)
 
@@ -451,9 +443,9 @@ handleOp' op =
 
 generateExprSt :: Expr -> State LanxSt VeryImportantTuple
 generateExprSt (Ast.EPar _ e) = generateExprSt e
-generateExprSt (Ast.EBool _ x)  = handleConstSt (LBool x)
-generateExprSt (Ast.EInt _ x)   = handleConstSt (LInt x)
-generateExprSt (Ast.EFloat _ x) = handleConstSt (LFloat x)
+generateExprSt (Ast.EBool _ x)  = generateConstSt (LBool x)
+generateExprSt (Ast.EInt _ x)   = generateConstSt (LInt x)
+generateExprSt (Ast.EFloat _ x) = generateConstSt (LFloat x)
 generateExprSt (Ast.EList _ es) =
   do
     let len = length es
