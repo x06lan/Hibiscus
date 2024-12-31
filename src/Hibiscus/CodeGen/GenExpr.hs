@@ -61,10 +61,6 @@ generateEntrySt key =
         let var = (Id (currentCount + 1), varType)
         modify (\s -> s{idCount = idCount s + 1})
         returnAndUpdateMap $ ExprResult var
-      ResultFunction s (returnT, args) -> do
-        let opid = IdName $ intercalate "_" (s : map show args)
-        let t = DTypeFunction returnT args
-        returnAndUpdateMap $ ExprResult (opid, t)
 
 -- used by a lot of place
 insertResultSt :: ResultType -> Maybe ExprReturn -> State LanxSt (ExprReturn)
@@ -249,8 +245,8 @@ generateDecSt (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
     let varType = typeConvert t
     (typeId, inst1) <- generateTypeSt varType
     (result, inst2, varInst, stackInst) <- generateExprSt e
-    env_state2 <- gets env
-    _ <- insertResultSt (ResultVariable (env_state2, BS.unpack name, varType)) (Just result)
+    -- env_state2 <- gets env
+    -- _ <- insertResultSt (ResultVariable (env_state2, BS.unpack name, varType)) (Just result)
     env_state3 <- gets env
     _ <- insertResultSt (ResultVariableValue (env_state3, BS.unpack name, varType)) (Just result)
     return (inst1 +++ inst2, varInst, stackInst)
@@ -275,18 +271,22 @@ generateFunctionParamSt args =
 -- aux used by handleVarFunctionSt
 -- used by generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name))
 generateFunctionSt :: Instructions -> Dec -> State LanxSt (OpId, Instructions)
-generateFunctionSt inst (Ast.DecAnno _ name t) = return $ (IdName "", inst)
+generateFunctionSt inst (Ast.DecAnno _ name t) = return (IdName "", inst)
 generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
   do
     env_state0 <- gets env
-    let DTypeFunction returnType argsType = typeConvert t
-    let functionType = DTypeFunction returnType argsType
+    let functionType = typeConvert t
+    let DTypeFunction returnType argsType = functionType
 
     (typeId, inst1) <- generateTypeSt functionType
-    modify (\s -> s{env = ([BS.unpack name], functionType)})
+    modify (\s -> s{env = ([""], functionType)})
+    env_state1 <- gets env
 
-    er <- insertResultSt (ResultFunction (BS.unpack name) (returnType, argsType)) Nothing
-    let ExprResult (funcId, funcType) = er
+    let funcId = IdName ( intercalate "_" ([BS.unpack name] ++ (map show argsType)))
+    let result  = ExprApplication (CustomFunction funcId (BS.unpack name )) (returnType, argsType) []
+    er <- insertResultSt (ResultVariableValue (env_state1, BS.unpack name, functionType)) (Just result)
+
+    modify (\s -> s{env = ("":[BS.unpack name], functionType)})
 
     (inst2, paramInst) <- generateFunctionParamSt args
 
@@ -315,7 +315,7 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     return (funcId, inst5)
 
 -- used by generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name))
-handleVarFunctionSt :: String -> FunctionSignature -> State LanxSt (ExprReturn, Instructions, StackInst)
+handleVarFunctionSt :: String -> FunctionSignature -> State LanxSt VeryImportantTuple
 handleVarFunctionSt name (returnType, args) =
   let
     magic x =
@@ -324,25 +324,31 @@ handleVarFunctionSt name (returnType, args) =
         else error (name ++ ":" ++ show args)
   in do
     state <- get
-    let result = findResult state (ResultFunction name (returnType, args))
+    let result = findResult state (ResultVariableValue (env state, name, DTypeFunction returnType args))
     case result of
-      Just x -> return (x, emptyInstructions, [])
+      Just x -> return (x, emptyInstructions, [],[])
       Nothing ->
         case typeStringConvert name of
           Just x
-            | x == returnType -> return (ExprApplication (TypeConstructor returnType) (returnType, args) [], emptyInstructions, [])
+            | x == returnType -> return (ExprApplication (TypeConstructor returnType) (returnType, args) [], emptyInstructions, [],[])
           Nothing
-            | name == "foldl" -> return (ExprApplication FunctionFoldl (returnType, args) [], emptyInstructions, [])
-            | name == "map" -> return (ExprApplication FunctionMap (returnType, args) [], emptyInstructions, [])
-            | name == "extract_0" -> magic $ return (ExprApplication (TypeExtractor returnType [0]) (returnType, args) [], mempty, [])
-            | name == "extract_1" -> magic $ return (ExprApplication (TypeExtractor returnType [1]) (returnType, args) [], mempty, [])
-            | name == "extract_2" -> magic $ return (ExprApplication (TypeExtractor returnType [2]) (returnType, args) [], mempty, [])
-            | name == "extract_3" -> magic $ return (ExprApplication (TypeExtractor returnType [3]) (returnType, args) [], mempty, [])
+            | name == "foldl" -> return (ExprApplication FunctionFoldl (returnType, args) [], emptyInstructions, [],[])
+            | name == "map" -> return (ExprApplication FunctionMap (returnType, args) [], emptyInstructions, [],[])
+            | name == "extract_0" -> magic $ return (ExprApplication (TypeExtractor returnType [0]) (returnType, args) [], mempty, [],[])
+            | name == "extract_1" -> magic $ return (ExprApplication (TypeExtractor returnType [1]) (returnType, args) [], mempty, [],[])
+            | name == "extract_2" -> magic $ return (ExprApplication (TypeExtractor returnType [2]) (returnType, args) [], mempty, [],[])
+            | name == "extract_3" -> magic $ return (ExprApplication (TypeExtractor returnType [3]) (returnType, args) [], mempty, [],[])
             | True ->
               do
                 let dec = fromMaybe (error (name ++ show args)) (findDec (decs state) name Nothing)
                 (id, inst1) <- generateFunctionSt emptyInstructions dec
-                return (ExprApplication (CustomFunction id name) (returnType, args) [], inst1, [])
+
+                -- if name =="sub" then
+                --   return $ (error . show) (idMap state)
+                -- else
+                --   return (ExprApplication (CustomFunction id name) (returnType, args) [], inst1, [],[])
+                -- return $ (error . show) (idMap state)
+                return (ExprApplication (CustomFunction id name) (returnType, args) [], inst1, [],[])
           -- error (show id ++ show (functionFields inst1))
           -- case findResult state (ResultFunction name ) of {}
           _ -> error "Not implemented function"
@@ -376,7 +382,7 @@ applyFunctionSt_aux1 (typeId, t) =
     modify (\s -> s{idCount = idCount s + 1})
     return
       ( [(varId, t)]
-      , [returnedInstruction (varId) (OpVariable typeId Function)]
+      , [returnedInstruction varId (OpVariable typeId Function)]
       , [noReturnInstruction (OpStore varId (fst t))]
       )
 
@@ -449,27 +455,24 @@ generateExprSt (Ast.EList _ es) =
     error "Not implemented array"
 generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name)) =
   do
+    state <- get
     let dType = typeConvert t1
-    (var, inst, stackInst) <-
-      case dType of
-        DTypeFunction returnT args -> handleVarFunctionSt (BS.unpack name) (returnT, args)
-        _ -> do
-          state <- get
-          let maybeResult = findResult state (ResultVariableValue (env state, BS.unpack name, dType))
-          case maybeResult of
-            Just x -> return (x, mempty, [])
-            Nothing ->
-              do
-                state <- get
-                -- let ExprResult (varId, varType) = fromMaybe (error ("can find var:" ++ show (env state, BS.unpack name, dType))) (findResult state (ResultVariable (env state, BS.unpack name, dType)))
-                let ExprResult (varId, varType) = fromMaybe (error . show $ idMap state) (findResult state (ResultVariable (env state, BS.unpack name, dType)))
-                _er <- insertResultSt (ResultVariableValue (env state, BS.unpack name, dType)) Nothing
-                let ExprResult (valueId, _) = _er
-                searchTypeId_state2_varType <- gets (\s -> searchTypeId s varType) -- FIXME: please rename this
-                let inst = returnedInstruction (valueId) (OpLoad (searchTypeId_state2_varType) varId)
-                return (ExprResult (valueId, varType), mempty, [inst])
-    --  in if n =="add" then error (show var) else (state3, var, inst, stackInst)
-    return (var, inst, [], stackInst)
+    let maybeResult = findResult state (ResultVariableValue (env state, BS.unpack name, dType))
+    case maybeResult of
+      Just x -> return (x, mempty, [], [])
+      Nothing ->
+        case dType of
+          DTypeFunction returnType args -> handleVarFunctionSt (BS.unpack name) (returnType, args)
+          _ -> 
+            do
+              let ExprResult (varId, varType) = fromMaybe (error ("can find var:" ++ show (env state, BS.unpack name, dType))) (findResult state (ResultVariable (env state, BS.unpack name, dType)))
+              er <- insertResultSt (ResultVariableValue (env state, BS.unpack name, dType)) Nothing
+              let  ExprResult (valueId, _) =er 
+              searchTypeId_state2_varType <- gets (\s -> searchTypeId s varType) -- FIXME: please rename this
+              let inst = returnedInstruction (valueId) (OpLoad (searchTypeId_state2_varType) varId)
+              let inst = returnedInstruction (valueId) (OpLoad (searchTypeId state2 varType) varId)
+              return ( ExprResult (valueId, varType), mempty , [], [inst])
+
 generateExprSt (Ast.EString _ _) = error "String"
 generateExprSt (Ast.EUnit _) = error "Unit"
 generateExprSt (Ast.EApp _ e1 e2) =
@@ -517,7 +520,7 @@ generateExprSt (Ast.EIfThenElse _ cond thenE elseE) =
           [returnedInstruction ((Id (id + 2))) (OpLabel)]
             ++ stackInst3
             ++ [noReturnInstruction (OpBranch (Id (id + 3)))]
-            ++ [returnedInstruction ((Id (id + 3))) (OpLabel)]
+            ++ [returnedInstruction (Id (id + 3)) (OpLabel)]
     -- modify (\s -> s{idCount = id + 3})
     -- TODO: handle return variable
     return (var3, inst1 +++ inst2 +++ inst3, varInst1 ++ varInst2 ++ varInst3, sInst1' ++ sInst2' ++ sInst3')
@@ -540,7 +543,7 @@ generateExprSt (Ast.ELetIn _ decs e) =
   do
     (envs, envType) <- gets env
     modify (\s -> s{env = (envs ++ ["letIn"], envType)})
-    (inst, varInst, stackInst) <- foldMaplM generateDecSt decs
+    (inst, varInst, stackInst) <- foldMaprM generateDecSt decs -- reverse order
     (result, inst1, varInst2, stackInst1) <- generateExprSt e
     modify (\s -> s{env = (envs, envType)})
     return (result, inst +++ inst1, varInst ++ varInst2, stackInst ++ stackInst1)
