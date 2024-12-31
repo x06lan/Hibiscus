@@ -26,9 +26,6 @@ import Data.Monoid (First (..), getFirst)
 
 import Hibiscus.Util (foldMaplM, foldMaprM)
 
-doTrace :: String -> State s ()
-doTrace str = state $ \s -> trace str $ ((),s)
-
 findResult' :: ResultType -> ResultMap -> Maybe ExprReturn
 findResult' (ResultVariable (envs, name, varType)) viIdMap =
   -- find variable up to the mother env
