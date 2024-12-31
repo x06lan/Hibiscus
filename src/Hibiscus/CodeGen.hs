@@ -49,7 +49,7 @@ generateInitSt cfg decs =
       LanxSt
         { idCount = startId + 1
         , idMap = Map.empty
-        , env = ([], DTypeVoid)
+        , env = [global]
         , decs = decs
         }
     _ <- insertResultSt (ResultCustom "ext ") (Just (ExprResult (Id 1, DTypeVoid))) -- ext
@@ -97,7 +97,7 @@ generateUniformsSt cfg args =
       let uniforms' = ("outColor", vector4, Output, 0) : uniforms -- todo handle custom output
       (inst, ids) <- foldMaplM generateUniformsSt_aux1 uniforms'
 
-      let hf = trace "test" $ headerFields inst
+      let hf =  headerFields inst
       let hf' = hf{entryPointInst = Just $ noReturnInstruction (OpEntryPoint shaderTypeOfCfg (IdName entryPointOfCfg) (entryPointOfCfg) (ShowList ids))}
       let inst1 = inst{headerFields = hf'}
 
@@ -116,7 +116,7 @@ generateMainFunctionSt inst cfg (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     _er <- insertResultSt (ResultCustom "func ") (Just (ExprResult (IdName (BS.unpack name), functionType)))
     let ExprResult (funcId, _) = _er
 
-    modify (\s -> s{idCount = idCount s + 1, env = ("":[BS.unpack name], functionType)})
+    modify (\s -> s{idCount = idCount s + 1, env = global:[(BS.unpack name, functionType)]})
     labelId <- gets (Id . idCount)
 
     inst2 <- generateUniformsSt cfg args

@@ -26,30 +26,33 @@ import Data.Monoid (First (..), getFirst)
 
 import Hibiscus.Util (foldMaplM, foldMaprM)
 
+doTrace :: String -> State s ()
+doTrace str = state $ \s -> trace str $ ((),s)
 
 findResult' :: ResultType -> ResultMap -> Maybe ExprReturn
-findResult' (ResultVariable ((envs, envType), name, varType)) viIdMap =
+findResult' (ResultVariable (envs, name, varType)) viIdMap =
   -- find variable up to the mother env
-  let param = (viIdMap, envType, name, varType)
+  let param = (viIdMap,  name, varType)
    in getFirst . fst $ runState (foldMaplM (aux param) envs) []
  where
-  aux :: (ResultMap, DataType, String, DataType) -> String -> State [String] (First ExprReturn)
-  aux (viIdMap, envType, name, varType) env =
+  aux :: (ResultMap,  String, DataType) -> (String,DataType) -> State Env (First ExprReturn)
+  aux (viIdMap,  name, varType) env =
     do
       acc_env <- get
-      let result = Map.lookup (ResultVariable ((acc_env ++ [env], envType), name, varType)) viIdMap
+      let result = Map.lookup (ResultVariable ((acc_env ++ [env]), name, varType)) viIdMap
+
       put (acc_env ++ [env])
       return $ First result
-findResult' (ResultVariableValue ((envs, envType), name, varType)) viIdMap =
+findResult' (ResultVariableValue (envs, name, varType)) viIdMap =
   -- find variable up to the mother env
-  let param = (viIdMap, envType, name, varType)
+  let param = (viIdMap,  name, varType)
    in getFirst . fst $ runState (foldMaplM (aux param) envs) []
  where
-  aux :: (ResultMap, DataType, String, DataType) -> String -> State [String] (First ExprReturn)
-  aux (viIdMap, envType, name, varType) env =
+  aux :: (ResultMap, String, DataType) -> (String,DataType)-> State Env (First ExprReturn)
+  aux (viIdMap, name, varType) env =
     do
       acc_env <- get
-      let result = Map.lookup (ResultVariableValue ((acc_env ++ [env], envType), name, varType)) viIdMap
+      let result = Map.lookup (ResultVariableValue ((acc_env ++ [env]), name, varType)) viIdMap
       put (acc_env ++ [env])
       return $ First result
 findResult' key viIdMap = Map.lookup key viIdMap

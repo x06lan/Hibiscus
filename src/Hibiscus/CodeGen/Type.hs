@@ -60,7 +60,7 @@ getNameAndDType (Ast.Argument (_, t) (Ast.Name _ name)) = (BS.unpack name, typeC
 
 type FunctionSignature = (DataType, [DataType]) -- return type, arguments
 
-type Env = ([String], DataType) -- function name, function type
+type Env = [(String,DataType)] -- function name, function type
 
 type ResultMap = Map.Map ResultType ExprReturn
 
@@ -124,6 +124,7 @@ data HeaderFields = HeaderFields
   }
   deriving (Show)
 
+global = ("",DTypeVoid)
 emptyHeaderFields =
   HeaderFields
     { capabilityInst = Nothing
