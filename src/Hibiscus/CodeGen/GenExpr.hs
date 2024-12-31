@@ -60,12 +60,18 @@ generateEntry state key =
                 LFloat f -> (IdName ("float_" ++ map (\c -> if c == '.' then '_' else c) (show f)), float32)
               result = ExprResult var
            in (Map.insert key result currentMap, result, currentCount)
-        ResultVariable ((envs, envType), name, varType) ->
-          let var = (IdName (intercalate "_" (envs ++ [name])), varType)
+        ResultVariable (envs, name, varType) ->
+          let 
+              flattenTuples :: [(a, b)] -> [a]
+              flattenTuples = concatMap (\(x, y) -> [x]) -- HOTFIX
+              var = (IdName (intercalate "_" (flattenTuples envs ++ [name])), varType)
               result = ExprResult var
            in (Map.insert key result currentMap, result, currentCount)
-        ResultVariableValue ((envName, envType), s, varType) ->
-          let var = (Id (currentCount + 1), varType)
+        ResultVariableValue (envs, s, varType) ->
+          let 
+              flattenTuples :: [(a, b)] -> [a]
+              flattenTuples = concatMap (\(x, y) -> [x])
+              var = (Id (currentCount + 1), varType)
               result = ExprResult var
            in (Map.insert key result currentMap, result, currentCount + 1)
 
@@ -287,14 +293,18 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     let DTypeFunction returnType argsType = functionType
 
     (typeId, inst1) <- generateTypeSt functionType
-    modify (\s -> s{env = ([""], functionType)})
+    modify (\s -> s{env = ([global])})
     env_state1 <- gets env
 
     let funcId = IdName ( intercalate "_" ([BS.unpack name] ++ (map show argsType)))
     let result  = ExprApplication (CustomFunction funcId (BS.unpack name )) (returnType, argsType) []
     er <- insertResultSt (ResultVariableValue (env_state1, BS.unpack name, functionType)) (Just result)
 
-    modify (\s -> s{env = ("":[BS.unpack name], functionType)})
+    -- doTrace (show (BS.unpack name,env_state1,  functionType, er))
+
+    state <- get
+
+    modify (\s -> s{env = global:[(BS.unpack name,functionType)]})
 
     (inst2, paramInst) <- generateFunctionParamSt args
 
@@ -320,7 +330,12 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
             }
     let inst4 = inst +++ inst1 +++ inst2 +++ inst3
     let inst5 = inst4{functionFields = functionFields inst4 ++ [funcInst]}
+    -- state' <- get
+    -- return $ error (show $ idMap state')
     return (funcId, inst5)
+
+-- doTrace :: String -> State s ()
+-- doTrace str = state $ \s -> trace str $ ((),s)
 
 -- used by generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name))
 handleVarFunctionSt :: String -> FunctionSignature -> State LanxSt VeryImportantTuple
@@ -333,6 +348,7 @@ handleVarFunctionSt name (returnType, args) =
   in do
     state <- get
     let result = findResult state (ResultVariableValue (env state, name, DTypeFunction returnType args))
+    -- doTrace (show (name,env state , DTypeFunction returnType args, result))
     case result of
       Just x -> return (x, emptyInstructions, [],[])
       Nothing ->
@@ -348,14 +364,13 @@ handleVarFunctionSt name (returnType, args) =
             | name == "extract_3" -> magic $ return (ExprApplication (TypeExtractor returnType [3]) (returnType, args) [], mempty, [],[])
             | True ->
               do
-                let dec = fromMaybe (error (name ++ show args)) (findDec (decs state) name Nothing)
-                (id, inst1) <- generateFunctionSt emptyInstructions dec
+                state1 <- get
+                let dec = fromMaybe (error (name ++ show args)) (findDec (decs state1) name Nothing)
+                (id, inst1) <- generateFunctionSt emptyInstructions dec 
+                state2 <- get
 
-                -- if name =="sub" then
-                --   return $ (error . show) (idMap state)
-                -- else
-                --   return (ExprApplication (CustomFunction id name) (returnType, args) [], inst1, [],[])
-                -- return $ (error . show) (idMap state)
+                -- doTrace ("after "++ show (env state2)++show (findResult state2 (ResultVariableValue (env state2, name, DTypeFunction returnType args))))
+                -- doTrace (show (idMap state2))
                 return (ExprApplication (CustomFunction id name) (returnType, args) [], inst1, [],[])
           -- error (show id ++ show (functionFields inst1))
           -- case findResult state (ResultFunction name ) of {}
@@ -382,7 +397,7 @@ handleConstSt lit =
 
 ----- Below are use by generateExprSt (Ast.EApp _ e1 e2)
 
-applyFunctionSt_aux1 :: (OpId, (OpId, b)) -> State LanxSt ([(OpId, (OpId, b))], [Instruction], [Instruction])
+applyFunctionSt_aux1 :: (OpId, (OpId, b)) -> State LanxSt ([(OpId, (OpId, b))], VariableInst, StackInst)
 applyFunctionSt_aux1 (typeId, t) =
   do
     id <- gets idCount
@@ -473,7 +488,7 @@ generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name)) =
           DTypeFunction returnType args -> handleVarFunctionSt (BS.unpack name) (returnType, args)
           _ -> 
             do
-              let ExprResult (varId, varType) = fromMaybe (error ("can find var:" ++ show (env state, BS.unpack name, dType))) (findResult state (ResultVariable (env state, BS.unpack name, dType)))
+              let ExprResult (varId, varType) = fromMaybe (error ("cant find var:" ++ show (env state, BS.unpack name, dType))) (findResult state (ResultVariable (env state, BS.unpack name, dType)))
               er <- insertResultSt (ResultVariableValue (env state, BS.unpack name, dType)) Nothing
               let  ExprResult (valueId, _) =er 
               state2 <- get
@@ -508,7 +523,10 @@ generateExprSt (Ast.EApp _ e1 e2) =
     let finalVar   = var3
     let inst'      = inst1 +++ inst2 +++ inst3
     let varInst'   = varInst1 ++ varInst2 ++ varInst3
-    let stackInst' = stackInst1 ++ stackInst2 ++ stackInst3
+    -- let stackInst' = stackInst1 ++ stackInst2 ++ stackInst3
+    doTrace (show (stackInst1,stackInst2,stackInst3))
+    doTrace (show (e1  ,e2))
+    let stackInst' =stackInst1++ stackInst2 ++ stackInst3
     return (finalVar, inst', varInst', stackInst')
 generateExprSt (Ast.EIfThenElse _ cond thenE elseE) =
   let
@@ -548,11 +566,13 @@ generateExprSt (Ast.EBinOp _ e1 op e2) =
 generateExprSt e@(Ast.EOp _ _) = do return (handleOp' e, mempty, [], [])
 generateExprSt (Ast.ELetIn _ decs e) =
   do
-    (envs, envType) <- gets env
-    modify (\s -> s{env = (envs ++ ["letIn"], envType)})
-    (inst, varInst, stackInst) <- foldMaprM generateDecSt decs -- reverse order
+    envs <- gets env
+    modify (\s -> s{env = envs ++ [("letIn",DTypeVoid)]})
+    -- doTrace (show decs)
+    -- return $ error (show decs)
+    (inst, varInst, stackInst) <- foldMaplM generateDecSt (reverse decs) -- reverse order
     (result, inst1, varInst2, stackInst1) <- generateExprSt e
-    modify (\s -> s{env = (envs, envType)})
+    modify (\s -> s{env = envs})
     return (result, inst +++ inst1, varInst ++ varInst2, stackInst ++ stackInst1)
     -- in error (show (findResult state2 (ResultVariableValue (env state2, "x", envType))))
     -- in error (show (idMap state2))
