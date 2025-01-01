@@ -153,14 +153,13 @@ instructionsToString inst =
     codeText
 
 generate :: Config -> [Dec] -> Instructions
-generate config decs =
-  do
-    let mainDec = fromJust $ findDec decs (entryPoint config) Nothing
-
-    let noMatterState = undefined
-    let (inst, initState) = runState (generateInitSt config decs) noMatterState
-    let (inst', state') = runState (generateMainFunctionSt inst config mainDec) initState
-    -- (state3, _, inst2) = generateType initState (DTypePointer Input vector2)
-
-    let finalInst = inst'
-    finalInst
+generate config decs = evalState aux noMatterState
+  where
+    noMatterState = undefined
+    aux = do
+      let mainDec = fromJust $ findDec decs (entryPoint config) Nothing
+      inst <- generateInitSt config decs
+      inst' <- generateMainFunctionSt inst config mainDec
+      -- (state3, _, inst2) = generateType initState (DTypePointer Input vector2)
+      let finalInst = inst'
+      return finalInst
