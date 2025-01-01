@@ -231,7 +231,7 @@ generateBinOp state v1@(e1, t1) op v2@(e2, t2) =
                 case op of
                   Ast.Times _ -> (DT.vector2, returnedInstruction id (Asm.OpVectorTimesScalar typeId1 e1 e2))
           _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
-   in (state', (id, resultType), inst, [instruction])
+   in (state'', (id, resultType), inst, [instruction])
 
 ----- Below are directly used by generateExprSt
 
@@ -523,13 +523,13 @@ generateExprSt (Ast.EIfThenElse _ cond thenE elseE) =
       let ExprResult (id2, type2) = var2
       let ExprResult (id3, type3) = var3
       let varType = DT.DTypePointer Asm.Function type2
+      (varTypeId, inst4) <- generateTypeSt varType
+      (varValueTypeId, inst5) <- generateTypeSt type2
 
       id <- gets idCount
       envs <- gets env
 
       er <- insertResultSt (ResultVariable (envs, "ifThen" ++ show (id + 1), type2)) Nothing
-      (varTypeId, inst4) <- generateTypeSt varType
-      (varValueTypeId, inst5) <- generateTypeSt type2
       let result@(ExprResult (varId, _)) = er
       let sInst1' =
             stackInst1
