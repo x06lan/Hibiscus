@@ -1,6 +1,4 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-missing-signatures #-}
 
 module Hibiscus.CodeGen.Type where
@@ -8,59 +6,56 @@ module Hibiscus.CodeGen.Type where
 -- import qualified Data.Set as Set
 
 import Control.Exception (handle)
+
+-- type infer
+import Control.Monad.State.Lazy
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.List (find, intercalate)
 import qualified Data.Map as Map
 import Data.Maybe
-import Data.STRef (newSTRef)
-import Debug.Trace
-import Hibiscus.Asm
-import qualified Hibiscus.Ast as Ast
-import Hibiscus.Lexer
-import Hibiscus.Parser
-import Hibiscus.CodeGen.Type.DataType
-import Hibiscus.Util (replace)
-
-import qualified Hibiscus.Type4plus as TI -- type infer
-
-import Control.Monad.State.Lazy
 import Data.Monoid (First (..), getFirst)
-
-import Hibiscus.Util (foldMaplM, foldMaprM)
+import Data.STRef (newSTRef)
+import qualified Hibiscus.Asm as Asm
+import qualified Hibiscus.Ast as Ast
+import Hibiscus.CodeGen.Type.DataType (DataType)
+import qualified Hibiscus.CodeGen.Type.DataType as DT
+import qualified Hibiscus.Lexer as L
+import qualified Hibiscus.Type4plus as TI
+import Hibiscus.Util (foldMaplM, foldMaprM, replace)
 
 -- IDK why this is not imported from Asm
-type ResultId = OpId
+type ResultId = Asm.OpId
 
 -- import Data.IntMap (fromList, foldlWithKey)
 
 ----- Instruction constructor helpers BEGIN -----
 
-noReturnInstruction :: Ops -> Instruction
-noReturnInstruction op = Instruction (Nothing, op)
+noReturnInstruction :: Asm.Ops -> Asm.Instruction
+noReturnInstruction op = Asm.Instruction (Nothing, op)
 
-returnedInstruction :: ResultId -> Ops -> Instruction
-returnedInstruction id op = Instruction (Just id, op)
+returnedInstruction :: ResultId -> Asm.Ops -> Asm.Instruction
+returnedInstruction id op = Asm.Instruction (Just id, op)
 
-commentInstruction :: String -> Instruction
-commentInstruction = noReturnInstruction . Comment
+commentInstruction :: String -> Asm.Instruction
+commentInstruction = noReturnInstruction . Asm.Comment
 
 ----- Instruction constructor helpers END -------
 
-type Variable = (OpId, DataType)
+type Variable = (Asm.OpId, DataType)
 
-type Uniform = (String, DataType, StorageClass, Int)
+type Uniform = (String, DataType, Asm.StorageClass, Int)
 
 type Type = Ast.Type ()
-type Dec = Ast.Dec (Range, Type)
-type Expr = Ast.Expr (Range, Type)
-type Argument = Ast.Argument (Range, Type)
+type Dec = Ast.Dec (L.Range, Type)
+type Expr = Ast.Expr (L.Range, Type)
+type Argument = Ast.Argument (L.Range, Type)
 
 getNameAndDType :: Argument -> (String, DataType)
-getNameAndDType (Ast.Argument (_, t) (Ast.Name _ name)) = (BS.unpack name, typeConvert t)
+getNameAndDType (Ast.Argument (_, t) (Ast.Name _ name)) = (BS.unpack name, DT.typeConvert t)
 
 type FunctionSignature = (DataType, [DataType]) -- return type, arguments
 
-type Env = [(String,DataType)] -- function name, function type
+type Env = [(String, DataType)] -- function name, function type
 
 type ResultMap = Map.Map ResultType ExprReturn
 
@@ -68,26 +63,26 @@ type ResultMap = Map.Map ResultType ExprReturn
 -- type ConstInst = [Instruction]
 -- type NameInst =[Instruction]
 -- type UniformsInst =[Instruction]
-type VariableInst = [Instruction]
-type StackInst = [Instruction]
+type VariableInst = [Asm.Instruction]
+type StackInst = [Asm.Instruction]
 
 data Config = Config
-  { capability :: Capability
+  { capability :: Asm.Capability
   , extension :: String
-  , memoryModel :: MemoryModel
-  , addressModel :: AddressingModel
-  , executionMode :: ExecutionMode
-  , shaderType :: ExecutionModel
-  , source :: (SourceLanguage, Int)
+  , memoryModel :: Asm.MemoryModel
+  , addressModel :: Asm.AddressingModel
+  , executionMode :: Asm.ExecutionMode
+  , shaderType :: Asm.ExecutionModel
+  , source :: (Asm.SourceLanguage, Int)
   , entryPoint :: String
   -- uniforms :: [Uniform] -- (name, type, position)
   }
 
 data FunctionType
-  = CustomFunction OpId String
+  = CustomFunction Asm.OpId String
   | TypeConstructor DataType -- function type constructor
   | TypeExtractor DataType [Int] -- function type decorator
-  | OperatorFunction (Ast.Op (Range, Type))
+  | OperatorFunction (Ast.Op (L.Range, Type))
   | FunctionFoldl -- base function
   | FunctionMap -- base function
   deriving (Show)
@@ -99,11 +94,11 @@ data ExprReturn
 
 data ResultType
   = ResultDataType DataType -- done
-  | ResultConstant Literal -- done
+  | ResultConstant Asm.Literal -- done
   | ResultVariable (Env, String, DataType) -- done
   | ResultVariableValue (Env, String, DataType) -- done
-  -- | ResultFunction String FunctionSignature -- name return type, arguments
-  | ResultCustom String -- done
+  | -- | ResultFunction String FunctionSignature -- name return type, arguments
+    ResultCustom String -- done
   deriving (Show, Eq, Ord)
 
 data LanxSt = LanxSt
@@ -115,16 +110,16 @@ data LanxSt = LanxSt
   deriving (Show)
 
 data HeaderFields = HeaderFields
-  { capabilityInst :: Maybe Instruction
-  , extensionInst :: Maybe Instruction
-  , memoryModelInst :: Maybe Instruction
-  , entryPointInst :: Maybe Instruction
-  , executionModeInst :: Maybe Instruction
-  , sourceInst :: Maybe Instruction
+  { capabilityInst :: Maybe Asm.Instruction
+  , extensionInst :: Maybe Asm.Instruction
+  , memoryModelInst :: Maybe Asm.Instruction
+  , entryPointInst :: Maybe Asm.Instruction
+  , executionModeInst :: Maybe Asm.Instruction
+  , sourceInst :: Maybe Asm.Instruction
   }
   deriving (Show)
 
-global = ("",DTypeVoid)
+global = ("", DT.DTypeVoid)
 emptyHeaderFields =
   HeaderFields
     { capabilityInst = Nothing
@@ -135,7 +130,7 @@ emptyHeaderFields =
     , sourceInst = Nothing
     }
 
-fromHeaderFields :: HeaderFields -> [Instruction]
+fromHeaderFields :: HeaderFields -> [Asm.Instruction]
 fromHeaderFields hf =
   [ commentInstruction "header fields"
   , fromJust (capabilityInst hf)
@@ -147,37 +142,37 @@ fromHeaderFields hf =
   ]
 
 data FunctionInst = FunctionInst
-  { begin :: [Instruction]
-  , parameter :: [Instruction]
-  , label :: [Instruction]
-  , variable :: [Instruction]
-  , body :: [Instruction]
-  , end :: [Instruction]
+  { begin :: [Asm.Instruction]
+  , parameter :: [Asm.Instruction]
+  , label :: [Asm.Instruction]
+  , variable :: [Asm.Instruction]
+  , body :: [Asm.Instruction]
+  , end :: [Asm.Instruction]
   }
   deriving (Show)
 
 data Instructions = Instructions
   { headerFields :: HeaderFields -- HACK: Maybe
-  , nameFields :: [Instruction]
-  , uniformsFields :: [Instruction]
-  , typeFields :: [Instruction]
-  , constFields :: [Instruction]
+  , nameFields :: [Asm.Instruction]
+  , uniformsFields :: [Asm.Instruction]
+  , typeFields :: [Asm.Instruction]
+  , constFields :: [Asm.Instruction]
   , functionFields :: [FunctionInst] -- [function]
   }
   deriving (Show)
 
-dtypeof :: Literal -> DataType
-dtypeof (LBool _)  = bool
-dtypeof (LUint _)  = uint32
-dtypeof (LInt _)   = int32
-dtypeof (LFloat _) = float32
+dtypeof :: Asm.Literal -> DataType
+dtypeof (Asm.LBool _) = DT.bool
+dtypeof (Asm.LUint _) = DT.uint32
+dtypeof (Asm.LInt _) = DT.int32
+dtypeof (Asm.LFloat _) = DT.float32
 
-idNameOf :: Literal -> String
+idNameOf :: Asm.Literal -> String
 idNameOf l = case l of
-  LBool b  -> "bool_"  ++ show b
-  LUint u  -> "uint_"  ++ show u
-  LInt i   -> "int_"   ++ show i
-  LFloat f -> "float_" ++ replace '.' '_' (show f)
+  Asm.LBool b -> "bool_" ++ show b
+  Asm.LUint u -> "uint_" ++ show u
+  Asm.LInt i -> "int_" ++ show i
+  Asm.LFloat f -> "float_" ++ replace '.' '_' (show f)
 
 -- FIXME: AFAIK, Instructions don’t actually form a Monoid.
 --        However, since most folds are associative, I created this instance
@@ -212,12 +207,12 @@ instance Monoid Instructions where
 defaultConfig :: Config
 defaultConfig =
   Config
-    { capability = Shader
-    , addressModel = Logical
-    , memoryModel = GLSL450
-    , source = (GLSL, 450)
-    , shaderType = Fragment
-    , executionMode = OriginUpperLeft
+    { capability = Asm.Shader
+    , addressModel = Asm.Logical
+    , memoryModel = Asm.GLSL450
+    , source = (Asm.GLSL, 450)
+    , shaderType = Asm.Fragment
+    , executionMode = Asm.OriginUpperLeft
     , extension = "GLSL.std.450"
     , entryPoint = "main"
     -- uniforms = [("uv", vector2, Input, 0), ("outColor", vector4, Output, 0)]

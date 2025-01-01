@@ -3,7 +3,8 @@
 
 module Hibiscus.Ast where
 
-import Data.ByteString.Lazy.Char8 (ByteString, unpack)
+import Data.ByteString.Lazy.Char8 (ByteString)
+import qualified Data.ByteString.Lazy.Char8 as BS
 
 data Name a
   = Name a ByteString
@@ -37,7 +38,7 @@ instance Eq (Type a) where
   _ == _ = False
 
 instance Show (Type a) where
-  show (TVar _ (Name _ n)) = unpack n
+  show (TVar _ (Name _ n)) = BS.unpack n
   show (TPar _ t) = "(" ++ show t ++ ")"
   show (TUnit _) = "Unit"
   show (TList _ t) = "List " ++ show t
@@ -71,21 +72,21 @@ data Expr a
   deriving (Functor, Foldable, Show)
 
 data Op a
-    = Plus a
-    | Minus a
-    | Times a
-    | Divide a
-    | Eq a
-    | Neq a
-    | Lt a
-    | Le a
-    | Gt a
-    | Ge a
-    | And a
-    | Or a
-    deriving (Eq, Functor, Foldable, Show)
+  = Plus a
+  | Minus a
+  | Times a
+  | Divide a
+  | Eq a
+  | Neq a
+  | Lt a
+  | Le a
+  | Gt a
+  | Ge a
+  | And a
+  | Or a
+  deriving (Eq, Functor, Foldable, Show)
 
--- NOTE: Hardcode 
+-- NOTE: Hardcode
 isBooleanOp :: Op a -> Bool
 isBooleanOp (Eq _) = True
 isBooleanOp (Neq _) = True
