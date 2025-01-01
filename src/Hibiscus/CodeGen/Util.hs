@@ -87,6 +87,7 @@ findDec' name maybeFS = find' aux
     case filter p xs of
       [v] -> Just v
       [] -> Nothing
+      -- TODO: to handle polymorphic function
       _ -> error "found multiple result, perhaps you want to use `find`"
 
 -- search dec by name and function signature

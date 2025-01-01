@@ -74,7 +74,7 @@ insertResultSt key maybeER = do
       case maybeER of
         Nothing -> generateEntrySt key
         Just value -> do
-          modify (\s -> s{idMap = Map.insert key value $ idMap s})
+          modify (\s -> s{idMap = Map.insert key value $ idMap s}) 
           return value
 
 generateTypeSt_aux1 :: DataType -> State LanxSt (Instructions)
@@ -183,9 +183,11 @@ generateBinOp :: LanxSt -> Variable -> Ast.Op (Range, Type) -> Variable -> (Lanx
 generateBinOp state v1@(e1, t1) op v2@(e2, t2) =
   let typeId1 = searchTypeId state t1
       typeId2 = searchTypeId state t2
-      state' =
-        state
-          { idCount = idCount state + 1
+      -- TODO: fix bool result type id
+      ((boolI,_),state') = runState (generateTypeSt DTypeBool) state
+      state'' =
+        state'
+          { idCount = idCount state' + 1
           }
       id = Id (idCount state')
       (resultType, instruction) =
@@ -249,7 +251,8 @@ generateDecSt (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
     (result, inst2, varInst, stackInst) <- generateExprSt e
     -- env_state2 <- gets env
     -- _ <- insertResultSt (ResultVariable (env_state2, BS.unpack name, varType)) (Just result)
-    env_state3 <- gets env
+    env_state3 <- gets env 
+    -- idMap should not have insert key
     _ <- insertResultSt (ResultVariableValue (env_state3, BS.unpack name, varType)) (Just result)
     return (inst1 +++ inst2, varInst, stackInst)
 
