@@ -22,9 +22,6 @@ import qualified Hibiscus.CodeGen.Type.DataType as DT
 import qualified Hibiscus.Type4plus as TI
 import Hibiscus.Util (foldMaplM, foldMaprM)
 
-doTrace :: String -> State s ()
-doTrace str = state $ \s -> trace str ((), s)
-
 findResult' :: ResultType -> ResultMap -> Maybe ExprReturn
 findResult' (ResultVariable (envs, name, varType)) viIdMap =
   -- find variable up to the mother env

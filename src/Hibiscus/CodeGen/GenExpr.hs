@@ -8,7 +8,6 @@ module Hibiscus.CodeGen.GenExpr where
 
 -- import qualified Data.Set as Set
 
-import Control.Exception (handle)
 import Control.Monad.State.Lazy
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.List (find, intercalate)
@@ -16,6 +15,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Monoid (First (..), getFirst)
 import Data.STRef (newSTRef)
+import Debug.Trace (traceM)
 import qualified Hibiscus.Asm as Asm
 import qualified Hibiscus.Ast as Ast
 import Hibiscus.CodeGen.Type
@@ -39,8 +39,8 @@ generateEntrySt key =
     returnAndUpdateMap er = do
       modify (\s -> s{idMap = Map.insert key er $ idMap s})
       return er
-    flattenTuples :: [(a, b)] -> [a]
-    flattenTuples = concatMap (\(x, y) -> [x]) -- FIXME: just a hotfix makes compiler happy for now
+    flattenTuples :: [(String, DataType)] -> [String]
+    flattenTuples = concatMap (\(x, y) -> [x, show y])
    in
     case key of
       ResultDataType t -> do
@@ -50,7 +50,7 @@ generateEntrySt key =
         let litType = dtypeof lit
         returnAndUpdateMap $ ExprResult (opid, litType)
       ResultVariable (envs, name, varType) -> do
-        let nameWithEnv = intercalate "_" (map fst envs ++ [name])
+        let nameWithEnv = intercalate "_" (flattenTuples envs ++ [name])
         let opid = Asm.IdName nameWithEnv
         returnAndUpdateMap $ ExprResult (opid, varType)
       ResultVariableValue (_, _, varType) -> do
@@ -81,14 +81,14 @@ generateTypeSt_aux1 dType = do
     DT.DTypeInt _ -> return emptyInstructions
     DT.DTypeUInt _ -> return emptyInstructions
     DT.DTypeFloat _ -> return emptyInstructions
-    DT.DTypeVector _ baseType -> do (_, inst) <- generateTypeSt baseType; return inst
-    DT.DTypeMatrix _ baseType -> do (_, inst) <- generateTypeSt baseType; return inst
-    DT.DTypeArray _ baseType -> do (_, inst) <- generateTypeSt baseType; return inst
-    DT.DTypePointer _ baseType -> do (_, inst) <- generateTypeSt baseType; return inst
-    DT.DTypeStruct _ fields -> foldMaplM (\field -> do (_, inst) <- generateTypeSt field; return inst) fields
-    DT.DTypeFunction returnType argsType -> foldMaplM (\t -> do (_, inst) <- generateTypeSt (DT.DTypePointer Asm.Function t); return inst) (returnType : argsType)
+    DT.DTypeVector _ baseType -> fmap snd . generateTypeSt $ baseType
+    DT.DTypeMatrix _ baseType -> fmap snd . generateTypeSt $ baseType
+    DT.DTypeArray _ baseType -> fmap snd . generateTypeSt $ baseType
+    DT.DTypePointer _ baseType -> fmap snd . generateTypeSt $ baseType
+    DT.DTypeStruct _ fields -> foldMaplM (fmap snd . generateTypeSt) fields
+    DT.DTypeFunction returnType argsType -> foldMaplM (fmap snd . generateTypeSt . DT.DTypePointer Asm.Function) (returnType : argsType)
 
-generateTypeSt_aux2 :: DataType -> ResultId -> State LanxSt (Instructions)
+generateTypeSt_aux2 :: DataType -> ResultId -> State LanxSt Instructions
 generateTypeSt_aux2 dType typeId = state $ \state2 ->
   let
     searchTypeId' = searchTypeId state2
@@ -104,7 +104,7 @@ generateTypeSt_aux2 dType typeId = state $ \state2 ->
       DT.DTypeVector size baseType -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (Asm.OpTypeVector (searchTypeId' baseType) size)]})
       DT.DTypeMatrix col baseType -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (Asm.OpTypeMatrix (searchTypeId' baseType) col)]})
       DT.DTypeArray size baseType ->
-        let ((constId, inst2), state4) = runState (generateConstSt (Asm.LUint size)) state3
+        let ((ExprResult (constId, _), inst2, _, _), state4) = runState (generateConstSt (Asm.LUint size)) state3
             arrayInst = [returnedInstruction typeId (Asm.OpTypeArray (searchTypeId' baseType) constId)]
             inst3' = inst2{typeFields = typeFields inst2 ++ arrayInst}
          in (state4, inst3')
@@ -283,7 +283,7 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     let result = ExprApplication (CustomFunction funcId (BS.unpack name)) (returnType, argsType) []
     er <- insertResultSt (ResultVariableValue (env_state1, BS.unpack name, functionType)) (Just result)
 
-    -- doTrace (show (BS.unpack name,env_state1,  functionType, er))
+    -- traceM (show (BS.unpack name,env_state1,  functionType, er))
 
     state <- get
 
@@ -316,9 +316,6 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     -- state' <- get
     -- return $ error (show $ idMap state')
     return (funcId, inst5)
-
--- doTrace :: String -> State s ()
--- doTrace str = state $ \s -> trace str $ ((),s)
 
 -- used by generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name))
 handleVarFunctionSt :: String -> FunctionSignature -> State LanxSt VeryImportantTuple
@@ -360,9 +357,8 @@ handleVarFunctionSt name (returnType, args) =
             -- case findResult state (ResultFunction name ) of {}
             _ -> error "Not implemented function"
 
--- used by handleConstSt
 -- used by generateExprSt literals
-generateConstSt :: Asm.Literal -> State LanxSt (Asm.OpId, Instructions)
+generateConstSt :: Asm.Literal -> State LanxSt VeryImportantTuple
 generateConstSt v = do
   let dtype = dtypeof v
   (typeId, typeInst) <- generateTypeSt dtype
@@ -370,14 +366,7 @@ generateConstSt v = do
   let (ExprResult (constId, dType)) = er
   let constInstruction = [returnedInstruction constId (Asm.OpConstant typeId v)]
   let inst = typeInst{constFields = constFields typeInst ++ constInstruction}
-  return (constId, inst)
-
--- used by generateExprSt literals
-handleConstSt :: Asm.Literal -> State LanxSt VeryImportantTuple
-handleConstSt lit =
-  do
-    (id, inst) <- generateConstSt lit
-    return (ExprResult (id, dtypeof lit), inst, [], [])
+  return (ExprResult (constId, dtype), inst, [], [])
 
 ----- Below are use by generateExprSt (Ast.EApp _ e1 e2)
 
@@ -450,16 +439,16 @@ handleOp' op =
 
 generateExprSt :: Expr -> State LanxSt VeryImportantTuple
 generateExprSt (Ast.EPar _ e) = generateExprSt e
-generateExprSt (Ast.EBool _ x) = handleConstSt (Asm.LBool x)
-generateExprSt (Ast.EInt _ x) = handleConstSt (Asm.LInt x)
-generateExprSt (Ast.EFloat _ x) = handleConstSt (Asm.LFloat x)
+generateExprSt (Ast.EBool _ x) = generateConstSt (Asm.LBool x)
+generateExprSt (Ast.EInt _ x) = generateConstSt (Asm.LInt x)
+generateExprSt (Ast.EFloat _ x) = generateConstSt (Asm.LFloat x)
 generateExprSt (Ast.EList _ es) =
   do
     let len = length es
     let makeAssociative (a, b, c, d) = ([a], b, c, d)
     (results, inst, var, stackInst) <- foldMaplM (fmap makeAssociative . generateExprSt) es
     (typeId, typeInst) <- generateTypeSt (DT.DTypeArray len DT.DTypeUnknown)
-    error "Not implemented array"
+    error "Not implemented array" -- TODO: EList
 generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name)) =
   do
     state <- get
@@ -476,7 +465,6 @@ generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name)) =
               er <- insertResultSt (ResultVariableValue (env state, BS.unpack name, dType)) Nothing
               let ExprResult (valueId, _) = er
               searchTypeId_state2_varType <- gets (\s -> searchTypeId s varType) -- FIXME: please rename this
-              let inst = returnedInstruction valueId (Asm.OpLoad searchTypeId_state2_varType varId)
               let inst = returnedInstruction valueId (Asm.OpLoad searchTypeId_state2_varType varId)
               return (ExprResult (valueId, varType), mempty, [], [inst])
 generateExprSt (Ast.EString _ _) = error "String"
@@ -499,6 +487,7 @@ generateExprSt (Ast.EApp _ e1 e2) =
                     TypeConstructor t -> handleConstructorSt t functionType args'
                     TypeExtractor t int -> handleExtractSt t int (head args')
                     OperatorFunction op -> error "Not implemented" -- TODO:
+                    FunctionFoldl -> error "Not implemented" -- TODO: eval foldl gen array length
                 (l, r)
                   | l < r ->
                       -- uncompleted applicatoin
@@ -509,8 +498,8 @@ generateExprSt (Ast.EApp _ e1 e2) =
     let inst' = inst1 +++ inst2 +++ inst3
     let varInst' = varInst1 ++ varInst2 ++ varInst3
     -- let stackInst' = stackInst1 ++ stackInst2 ++ stackInst3
-    doTrace (show (stackInst1, stackInst2, stackInst3))
-    doTrace (show (e1, e2))
+    traceM (show (stackInst1, stackInst2, stackInst3))
+    traceM (show (e1, e2))
     let stackInst' = stackInst1 ++ stackInst2 ++ stackInst3
     return (finalVar, inst', varInst', stackInst')
 generateExprSt (Ast.EIfThenElse _ cond thenE elseE) =
@@ -524,17 +513,40 @@ generateExprSt (Ast.EIfThenElse _ cond thenE elseE) =
       let conditionId = getIdFromBool condResult
       (var2, inst2, varInst2, stackInst2) <- generateExprSt thenE
       (var3, inst3, varInst3, stackInst3) <- generateExprSt elseE
+      let ExprResult (id2, type2) = var2
+      let ExprResult (id3, type3) = var3
+      let varType = DT.DTypePointer Asm.Function type2
+
       id <- gets idCount
-      let sInst1' = stackInst1 ++ [noReturnInstruction (Asm.OpBranchConditional conditionId (Asm.Id (id + 1)) (Asm.Id (id + 2)))]
-      let sInst2' = [returnedInstruction (Asm.Id (id + 1)) Asm.OpLabel] ++ stackInst2 ++ [noReturnInstruction (Asm.OpBranch (Asm.Id (id + 3)))]
+      envs <- gets env
+
+      er <- insertResultSt (ResultVariable (envs, "ifThen" ++ show (id + 1), type2)) Nothing
+      (varTypeId, inst4) <- generateTypeSt varType
+      let result@(ExprResult (varId, _)) = er
+      let sInst1' =
+            stackInst1
+              ++ [Asm.Instruction (Nothing, Asm.OpSelectionMerge (Asm.Id (id + 4)) Asm.None)]
+              ++ [Asm.Instruction (Nothing, Asm.OpBranchConditional conditionId (Asm.Id (id + 2)) (Asm.Id (id + 3)))]
+
+      let sInst2' =
+            [ Asm.Instruction (Nothing, Asm.Comment "then branch")
+            , Asm.Instruction (Just (Asm.Id (id + 2)), Asm.OpLabel)
+            ]
+              ++ stackInst2
+              ++ [ Asm.Instruction (Nothing, Asm.OpStore varId id2)
+                 , Asm.Instruction (Nothing, Asm.OpBranch (Asm.Id (id + 4)))
+                 ]
       let sInst3' =
-            [returnedInstruction (Asm.Id (id + 2)) Asm.OpLabel]
+            [Asm.Instruction (Nothing, Asm.Comment "else branch")]
+              ++ [Asm.Instruction (Just (Asm.Id (id + 3)), Asm.OpLabel)]
               ++ stackInst3
-              ++ [noReturnInstruction (Asm.OpBranch (Asm.Id (id + 3)))]
-              ++ [returnedInstruction (Asm.Id (id + 3)) Asm.OpLabel]
-      -- modify (\s -> s{idCount = id + 3})
-      -- TODO: handle return variable
-      return (var3, inst1 +++ inst2 +++ inst3, varInst1 ++ varInst2 ++ varInst3, sInst1' ++ sInst2' ++ sInst3')
+              ++ [Asm.Instruction (Nothing, Asm.OpStore varId id3)]
+              ++ [Asm.Instruction (Nothing, Asm.OpBranch (Asm.Id (id + 4)))]
+              ++ [Asm.Instruction (Just (Asm.Id (id + 4)), Asm.OpLabel)]
+              ++ [Asm.Instruction (Just (Asm.Id (id + 5)), Asm.OpLoad varTypeId varId)]
+      let varInst = varInst1 ++ varInst2 ++ varInst3 ++ [Asm.Instruction (Just varId, Asm.OpVariable varTypeId Asm.Function)]
+      modify (\s -> s{idCount = id + 5})
+      return (ExprResult (Asm.Id (id + 5), type2), inst1 +++ inst2 +++ inst3 +++ inst4, varInst, sInst1' ++ sInst2' ++ sInst3')
 generateExprSt (Ast.ENeg _ e) =
   do
     (_er, inst1, varInst1, stackInst1) <- generateExprSt e
@@ -554,7 +566,7 @@ generateExprSt (Ast.ELetIn _ decs e) =
   do
     envs <- gets env
     modify (\s -> s{env = envs ++ [("letIn", DT.DTypeVoid)]})
-    -- doTrace (show decs)
+    -- traceM (show decs)
     -- return $ error (show decs)
     (inst, varInst, stackInst) <- foldMaplM generateDecSt (reverse decs) -- reverse order
     (result, inst1, varInst2, stackInst1) <- generateExprSt e
