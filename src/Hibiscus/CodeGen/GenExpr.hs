@@ -10,7 +10,7 @@ module Hibiscus.CodeGen.GenExpr where
 
 import Control.Monad.State.Lazy
 import qualified Data.ByteString.Lazy.Char8 as BS
-import Data.List (find, intercalate)
+import Data.List (find, intercalate, tails)
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Monoid (First (..), getFirst)
@@ -178,34 +178,33 @@ generateBinOp :: LanxSt -> Variable -> Ast.Op (L.Range, Type) -> Variable -> (La
 generateBinOp state v1@(e1, t1) op v2@(e2, t2) =
   let typeId1 = searchTypeId state t1
       typeId2 = searchTypeId state t2
-      -- TODO: fix bool result type id
-      ((boolI,_),state') = runState (generateTypeSt DT.DTypeBool) state
+      ((boolId,inst),state') = runState (generateTypeSt DT.DTypeBool) state
       state'' =
         state'
           { idCount = idCount state' + 1
           }
-      id = Asm.Id (idCount state')
+      id = Asm.Id (idCount state'')
       (resultType, instruction) =
         case (t1, t2) of
           (t1, t2)
             | t1 == DT.bool && t2 == DT.bool ->
                 case op of
-                  Ast.Eq _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalEqual typeId1 e1 e2))
-                  Ast.Neq _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalNotEqual typeId1 e1 e2))
-                  Ast.And _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalAnd typeId1 e1 e2))
-                  Ast.Or _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalOr typeId1 e1 e2))
+                  Ast.Eq _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalEqual boolId e1 e2))
+                  Ast.Neq _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalNotEqual boolId e1 e2))
+                  Ast.And _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalAnd boolId e1 e2))
+                  Ast.Or _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalOr boolId e1 e2))
             | t1 == DT.int32 && t2 == DT.int32 ->
                 case op of
                   Ast.Plus _ -> (DT.int32, returnedInstruction id (Asm.OpIAdd typeId1 e1 e2))
                   Ast.Minus _ -> (DT.int32, returnedInstruction id (Asm.OpISub typeId1 e1 e2))
                   Ast.Times _ -> (DT.int32, returnedInstruction id (Asm.OpIMul typeId1 e1 e2))
                   Ast.Divide _ -> (DT.int32, returnedInstruction id (Asm.OpSDiv typeId1 e1 e2))
-                  Ast.Eq _ -> (DT.bool, returnedInstruction id (Asm.OpIEqual typeId1 e1 e2))
-                  Ast.Neq _ -> (DT.bool, returnedInstruction id (Asm.OpINotEqual typeId1 e1 e2))
-                  Ast.Lt _ -> (DT.bool, returnedInstruction id (Asm.OpSLessThan typeId1 e1 e2))
-                  Ast.Le _ -> (DT.bool, returnedInstruction id (Asm.OpSLessThanEqual typeId1 e1 e2))
-                  Ast.Gt _ -> (DT.bool, returnedInstruction id (Asm.OpSGreaterThan typeId1 e1 e2))
-                  Ast.Ge _ -> (DT.bool, returnedInstruction id (Asm.OpSGreaterThanEqual typeId1 e1 e2))
+                  Ast.Eq _ -> (DT.bool, returnedInstruction id (Asm.OpIEqual boolId e1 e2))
+                  Ast.Neq _ -> (DT.bool, returnedInstruction id (Asm.OpINotEqual boolId e1 e2))
+                  Ast.Lt _ -> (DT.bool, returnedInstruction id (Asm.OpSLessThan boolId e1 e2))
+                  Ast.Le _ -> (DT.bool, returnedInstruction id (Asm.OpSLessThanEqual boolId e1 e2))
+                  Ast.Gt _ -> (DT.bool, returnedInstruction id (Asm.OpSGreaterThan boolId e1 e2))
+                  Ast.Ge _ -> (DT.bool, returnedInstruction id (Asm.OpSGreaterThanEqual boolId e1 e2))
             | t1 == DT.int32 && t2 == DT.float32 -> error "Not implemented"
             | t1 == DT.float32 && t2 == DT.int32 -> error "Not implemented"
             | t1 == DT.float32 && t2 == DT.float32 ->
@@ -214,12 +213,12 @@ generateBinOp state v1@(e1, t1) op v2@(e2, t2) =
                   Ast.Minus _ -> (DT.float32, returnedInstruction id (Asm.OpFSub typeId1 e1 e2))
                   Ast.Times _ -> (DT.float32, returnedInstruction id (Asm.OpFMul typeId1 e1 e2))
                   Ast.Divide _ -> (DT.float32, returnedInstruction id (Asm.OpFDiv typeId1 e1 e2))
-                  Ast.Eq _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdEqual typeId1 e1 e2))
-                  Ast.Neq _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdNotEqual typeId1 e1 e2))
-                  Ast.Lt _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdLessThan typeId1 e1 e2))
-                  Ast.Le _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdLessThanEqual typeId1 e1 e2))
-                  Ast.Gt _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdGreaterThan typeId1 e1 e2))
-                  Ast.Ge _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdGreaterThanEqual typeId1 e1 e2))
+                  Ast.Eq _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdEqual boolId e1 e2))
+                  Ast.Neq _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdNotEqual boolId e1 e2))
+                  Ast.Lt _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdLessThan boolId e1 e2))
+                  Ast.Le _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdLessThanEqual boolId e1 e2))
+                  Ast.Gt _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdGreaterThan boolId e1 e2))
+                  Ast.Ge _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdGreaterThanEqual boolId e1 e2))
             | t1 == t2 && (t1 == DT.vector2 || t1 == DT.vector3 || t1 == DT.vector4) ->
                 case op of
                   Ast.Plus _ -> (t1, returnedInstruction id (Asm.OpFAdd typeId1 e1 e2))
@@ -232,7 +231,7 @@ generateBinOp state v1@(e1, t1) op v2@(e2, t2) =
                 case op of
                   Ast.Times _ -> (DT.vector2, returnedInstruction id (Asm.OpVectorTimesScalar typeId1 e1 e2))
           _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
-   in (state', (id, resultType), emptyInstructions, [instruction])
+   in (state', (id, resultType), inst, [instruction])
 
 ----- Below are directly used by generateExprSt
 
@@ -362,14 +361,19 @@ handleVarFunctionSt name (returnType, args) =
 
 -- used by generateExprSt literals
 generateConstSt :: Asm.Literal -> State LanxSt VeryImportantTuple
-generateConstSt v = do
-  let dtype = dtypeof v
-  (typeId, typeInst) <- generateTypeSt dtype
-  er <- insertResultSt (ResultConstant v) Nothing
-  let (ExprResult (constId, dType)) = er
-  let constInstruction = [returnedInstruction constId (Asm.OpConstant typeId v)]
-  let inst = typeInst{constFields = constFields typeInst ++ constInstruction}
-  return (ExprResult (constId, dtype), inst, [], [])
+generateConstSt v =  do
+  state <- get
+  case findResult state (ResultConstant v) of
+    Just x -> return (x, mempty, [], [])
+    Nothing ->
+        do
+          let dtype = dtypeof v
+          (typeId, typeInst) <- generateTypeSt dtype
+          er <- insertResultSt (ResultConstant v) Nothing
+          let (ExprResult (constId, dType)) = er
+          let constInstruction = [returnedInstruction constId (Asm.OpConstant typeId v)]
+          let inst = typeInst{constFields = constFields typeInst ++ constInstruction}
+          return (ExprResult (constId, dtype), inst, [], [])
 
 ----- Below are use by generateExprSt (Ast.EApp _ e1 e2)
 
@@ -525,6 +529,7 @@ generateExprSt (Ast.EIfThenElse _ cond thenE elseE) =
 
       er <- insertResultSt (ResultVariable (envs, "ifThen" ++ show (id + 1), type2)) Nothing
       (varTypeId, inst4) <- generateTypeSt varType
+      (varValueTypeId, inst5) <- generateTypeSt type2
       let result@(ExprResult (varId, _)) = er
       let sInst1' =
             stackInst1
@@ -546,10 +551,10 @@ generateExprSt (Ast.EIfThenElse _ cond thenE elseE) =
               ++ [Asm.Instruction (Nothing, Asm.OpStore varId id3)]
               ++ [Asm.Instruction (Nothing, Asm.OpBranch (Asm.Id (id + 4)))]
               ++ [Asm.Instruction (Just (Asm.Id (id + 4)), Asm.OpLabel)]
-              ++ [Asm.Instruction (Just (Asm.Id (id + 5)), Asm.OpLoad varTypeId varId)]
+              ++ [Asm.Instruction (Just (Asm.Id (id + 5)), Asm.OpLoad varValueTypeId varId)]
       let varInst = varInst1 ++ varInst2 ++ varInst3 ++ [Asm.Instruction (Just varId, Asm.OpVariable varTypeId Asm.Function)]
       modify (\s -> s{idCount = id + 5})
-      return (ExprResult (Asm.Id (id + 5), type2), inst1 +++ inst2 +++ inst3 +++ inst4, varInst, sInst1' ++ sInst2' ++ sInst3')
+      return (ExprResult (Asm.Id (id + 5), type2), inst1 +++ inst2 +++ inst3 +++ inst4+++inst5, varInst, sInst1' ++ sInst2' ++ sInst3')
 generateExprSt (Ast.ENeg _ e) =
   do
     (_er, inst1, varInst1, stackInst1) <- generateExprSt e
