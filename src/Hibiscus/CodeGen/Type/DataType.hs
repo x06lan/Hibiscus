@@ -2,10 +2,8 @@ module Hibiscus.CodeGen.Type.DataType where
 
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.List (intercalate)
-import Hibiscus.Asm (StorageClass)
+import qualified Hibiscus.Asm as Asm
 import qualified Hibiscus.Ast as Ast
-import Hibiscus.Lexer
-import Hibiscus.Parser
 
 -- import qualified Data.Set as Set
 
@@ -19,7 +17,7 @@ data DataType
   | DTypeVector Int DataType -- size, type
   | DTypeMatrix Int DataType -- col size, col type
   | DTypeArray Int DataType -- size, type
-  | DTypePointer StorageClass DataType -- pointer type
+  | DTypePointer Asm.StorageClass DataType -- pointer type
   | DTypeStruct String [DataType] -- name, fields
   | DTypeFunction DataType [DataType] -- return type, arguments
   deriving (Eq, Ord)
@@ -59,7 +57,7 @@ vector3 = DTypeVector 3 float32
 vector4 :: DataType
 vector4 = DTypeVector 4 float32
 
-typeFunctionConvert :: Ast.Type ()-> DataType
+typeFunctionConvert :: Ast.Type () -> DataType
 typeFunctionConvert t = case t of
   Ast.TArrow _ t1 t2 ->
     let processArrow :: Ast.Type () -> ([DataType], DataType)

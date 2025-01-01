@@ -1,55 +1,51 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-missing-signatures #-}
 
 module Hibiscus.CodeGen.Util where
 
 import Control.Exception (handle)
+
+-- type infer
+import Control.Monad.State.Lazy
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.List (find, intercalate)
 import qualified Data.Map as Map
-import Data.Maybe
-import Data.STRef (newSTRef)
-import Debug.Trace
-import Hibiscus.Asm
-import qualified Hibiscus.Ast as Ast
-import Hibiscus.Lexer
-import Hibiscus.Parser
-import Hibiscus.CodeGen.Type.DataType
-import Hibiscus.CodeGen.Type
-
-import qualified Hibiscus.Type4plus as TI -- type infer
-
-import Control.Monad.State.Lazy
 import Data.Monoid (First (..), getFirst)
-
+import Data.STRef (newSTRef)
+import Debug.Trace (trace)
+import qualified Hibiscus.Asm as Asm
+import qualified Hibiscus.Ast as Ast
+import Hibiscus.CodeGen.Type
+import Hibiscus.CodeGen.Type.DataType (DataType)
+import qualified Hibiscus.CodeGen.Type.DataType as DT
+import qualified Hibiscus.Type4plus as TI
 import Hibiscus.Util (foldMaplM, foldMaprM)
 
 findResult' :: ResultType -> ResultMap -> Maybe ExprReturn
 findResult' (ResultVariable (envs, name, varType)) viIdMap =
   -- find variable up to the mother env
-  let param = (viIdMap,  name, varType)
-   in getFirst . fst $ runState (foldMaplM (aux param) envs) []
+  let param = (viIdMap, name, varType)
+   in getFirst (evalState (foldMaplM (aux param) envs) [])
  where
-  aux :: (ResultMap,  String, DataType) -> (String,DataType) -> State Env (First ExprReturn)
-  aux (viIdMap,  name, varType) env =
+  aux :: (ResultMap, String, DataType) -> (String, DataType) -> State Env (First ExprReturn)
+  aux (viIdMap, name, varType) env =
     do
       acc_env <- get
-      let result = Map.lookup (ResultVariable ((acc_env ++ [env]), name, varType)) viIdMap
+      let result = Map.lookup (ResultVariable (acc_env ++ [env], name, varType)) viIdMap
 
       put (acc_env ++ [env])
       return $ First result
 findResult' (ResultVariableValue (envs, name, varType)) viIdMap =
   -- find variable up to the mother env
-  let param = (viIdMap,  name, varType)
-   in getFirst . fst $ runState (foldMaplM (aux param) envs) []
+  let param = (viIdMap, name, varType)
+   in getFirst (evalState (foldMaplM (aux param) envs) [])
  where
-  aux :: (ResultMap, String, DataType) -> (String,DataType)-> State Env (First ExprReturn)
+  aux :: (ResultMap, String, DataType) -> (String, DataType) -> State Env (First ExprReturn)
   aux (viIdMap, name, varType) env =
     do
       acc_env <- get
-      let result = Map.lookup (ResultVariableValue ((acc_env ++ [env]), name, varType)) viIdMap
+      let result = Map.lookup (ResultVariableValue (acc_env ++ [env], name, varType)) viIdMap
       put (acc_env ++ [env])
       return $ First result
 findResult' key viIdMap = Map.lookup key viIdMap
@@ -59,7 +55,7 @@ findResult s key =
   let viIdMap = idMap s -- very important idMap
    in findResult' key viIdMap
 
-searchTypeId :: LanxSt -> DataType -> OpId
+searchTypeId :: LanxSt -> DataType -> Asm.OpId
 searchTypeId s dt = case findResult s (ResultDataType dt) of
   Just x -> case x of
     ExprResult (id, _) -> id
@@ -78,7 +74,7 @@ findDec' name maybeFS = find' aux
     Just (_, argTs) ->
       ( \case
           Ast.Dec _ (Ast.Name _ n) args' _ ->
-            let argTs' = map (typeConvert . TI.getType) args'
+            let argTs' = map (DT.typeConvert . TI.getType) args'
              in n == BS.pack name && argTs == argTs
           _ -> False
       )
