@@ -19,6 +19,8 @@ import Prelude hiding (lookup)
 import GHC.Stack (HasCallStack)
 import Debug.Trace hiding (trace)
 
+import Hibiscus.TypeInfer.RSF
+
 trace :: String -> a -> a
 trace _ = id
 
@@ -32,10 +34,6 @@ instance Monoid Subst where
   mempty = Subst mempty
 lookup :: (Name a) -> TypeEnv -> Maybe (Type ())
 lookup n env = Map.lookup (void n) env
-
-type Result = Either String
-instance MonadFail Result where
-  fail = Left
 
 class Substable a where
   applySub :: Subst -> a -> a
@@ -138,6 +136,29 @@ magic sub = foldr aux (mempty, [])
 argToEnv :: [Argument (a, Type ())] -> TypeEnv
 argToEnv = Map.fromList . map (\(Argument (_,t) n) -> (void n,t))
 
+inferExprRS :: Expr a -> RSF TypeEnv Subst (Expr (a, Type ()))
+inferExprRS e@(EInt _ _) = return $ addType (literalT "Int") e
+inferExprRS e@(EFloat _ _) = return $ addType (literalT "Float") e
+inferExprRS e@(EString _ _) = return $ addType (literalT "String") e
+inferExprRS e@(EBool _ _) = return $ addType (literalT "Bool") e
+inferExprRS e@(EUnit _) = return $ addType (literalT "Unit") e
+inferExprRS (EPar _ e) = inferExprRS e
+inferExprRS e@(EVar _ x) =
+  do
+    env <- ask
+    case lookup x env of
+      Nothing -> fail $ "Unbound variable: " ++ show x
+      Just t -> return $ addType t e
+inferExprRS e =
+  do
+    s <- get
+    env <- ask
+    case inferExpr (env, s) e of
+      Right (s', e') -> do
+        put s'
+        return e'
+      Left e -> do
+        fail e
 
 inferExpr :: Context -> Expr a -> Result (Subst, Expr (a, Type ()))
 inferExpr ctx@(env,sub) expr = case expr of
