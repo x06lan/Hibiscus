@@ -109,7 +109,7 @@ generateTypeSt_aux2 dType typeId = state $ \state2 ->
       DTypeVector size baseType -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeVector (searchTypeId' baseType) size)]})
       DTypeMatrix col baseType -> (state2, emptyInstructions{typeFields = [returnedInstruction typeId (OpTypeMatrix (searchTypeId' baseType) col)]})
       DTypeArray size baseType ->
-        let ((constId, inst2), state4) = runState (generateConstSt (LUint size)) state3
+        let ((ExprResult(constId,_),inst2,_,_),state4) = runState (generateConstSt (LUint size)) state3
             arrayInst = [returnedInstruction typeId (OpTypeArray (searchTypeId' baseType) constId)]
             inst3' = inst2{typeFields = typeFields inst2 ++ arrayInst}
          in (state4, inst3')
@@ -470,7 +470,6 @@ generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name)) =
               let  ExprResult (valueId, _) =er 
               searchTypeId_state2_varType <- gets (\s -> searchTypeId s varType) -- FIXME: please rename this
               let inst = returnedInstruction (valueId) (OpLoad (searchTypeId_state2_varType) varId)
-              let inst = returnedInstruction (valueId) (OpLoad (searchTypeId state2 varType) varId)
               return ( ExprResult (valueId, varType), mempty , [], [inst])
 
 generateExprSt (Ast.EString _ _) = error "String"
