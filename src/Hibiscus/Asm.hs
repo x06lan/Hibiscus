@@ -235,6 +235,7 @@ data Ops
     OpLabel
   | OpBranch OpId
   | OpBranchConditional OpId OpId OpId
+  | OpSelectionMerge OpId FunctionControl
   | OpSwitch OpId OpId [(Int, OpId)]
   | OpKill
   | OpReturn

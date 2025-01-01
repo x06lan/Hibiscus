@@ -44,8 +44,8 @@ generateEntrySt key =
     returnAndUpdateMap er = do
       modify (\s -> s{idMap = Map.insert key er $ idMap s})
       return er
-    flattenTuples :: [(a, b)] -> [a]
-    flattenTuples = concatMap (\(x, y) -> [x]) -- FIXME: just a hotfix makes compiler happy for now
+    flattenTuples :: [(String , DataType)] -> [String]
+    flattenTuples = concatMap (\(x, y) -> [x,show y])
    in
     case key of
       ResultDataType t -> do
@@ -55,7 +55,7 @@ generateEntrySt key =
         let litType = dtypeof lit
         returnAndUpdateMap $ ExprResult (opid, litType)
       ResultVariable (envs, name, varType) -> do
-        let nameWithEnv = intercalate "_" (map fst envs ++ [name])
+        let nameWithEnv = intercalate "_" (flattenTuples envs ++ [name])
         let opid = IdName nameWithEnv
         returnAndUpdateMap $ ExprResult (opid, varType)
       ResultVariableValue (_, _, varType) -> do
@@ -297,7 +297,7 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     (inst2, paramInst) <- generateFunctionParamSt args
 
     modify (\s -> s{idCount = idCount s + 1})
- 
+
     labelId <- gets (Id . idCount)
 
     (er, inst3, varInst, exprInst) <- generateExprSt e
@@ -351,11 +351,7 @@ handleVarFunctionSt name (returnType, args) =
               do
                 state1 <- get
                 let dec = fromMaybe (error (name ++ show args)) (findDec (decs state1) name Nothing)
-                (id, inst1) <- generateFunctionSt emptyInstructions dec 
-                state2 <- get
-
-                -- traceM ("after "++ show (env state2)++show (findResult state2 (ResultVariableValue (env state2, name, DTypeFunction returnType args))))
-                -- traceM (show (idMap state2))
+                (id, inst1) <- generateFunctionSt emptyInstructions dec
                 return (ExprApplication (CustomFunction id name) (returnType, args) [], inst1, [],[])
           -- error (show id ++ show (functionFields inst1))
           -- case findResult state (ResultFunction name ) of {}
@@ -463,7 +459,7 @@ generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name)) =
       Nothing ->
         case dType of
           DTypeFunction returnType args -> handleVarFunctionSt (BS.unpack name) (returnType, args)
-          _ -> 
+          _ ->
             do
               let ExprResult (varId, varType) = fromMaybe (error ("cant find var:" ++ show (env state, BS.unpack name, dType))) (findResult state (ResultVariable (env state, BS.unpack name, dType)))
               er <- insertResultSt (ResultVariableValue (env state, BS.unpack name, dType)) Nothing
@@ -492,6 +488,7 @@ generateExprSt (Ast.EApp _ e1 e2) =
                     TypeConstructor t   -> handleConstructorSt t functionType args'
                     TypeExtractor t int -> handleExtractSt t int (head args')
                     OperatorFunction op -> error "Not implemented" -- TODO:
+                    FunctionFoldl       -> error "Not implemented" -- TODO: eval foldl gen array length
                 (l, r) | l < r ->
                   -- uncompleted applicatoin
                   return $ (ExprApplication funcType (returnType, argTypes) args', mempty, [], [])
@@ -510,22 +507,44 @@ generateExprSt (Ast.EIfThenElse _ cond thenE elseE) =
     getIdFromBool :: ExprReturn -> OpId
     getIdFromBool (ExprResult (id, DTypeBool)) = id
     getIdFromBool _ = error "Expected bool"
-  in do
-    (condResult, inst1, varInst1, stackInst1) <- generateExprSt cond
-    let conditionId = getIdFromBool condResult
-    (var2, inst2, varInst2, stackInst2) <- generateExprSt thenE
-    (var3, inst3, varInst3, stackInst3) <- generateExprSt elseE
-    id <- gets idCount
-    let sInst1' = stackInst1 ++ [noReturnInstruction (OpBranchConditional conditionId (Id (id + 1)) (Id (id + 2)))]
-    let sInst2' = [returnedInstruction ((Id (id + 1))) (OpLabel)] ++ stackInst2 ++ [noReturnInstruction (OpBranch (Id (id + 3)))]
-    let sInst3' =
-          [returnedInstruction ((Id (id + 2))) (OpLabel)]
+  in
+    do
+      (condResult, inst1, varInst1, stackInst1) <- generateExprSt cond
+      let conditionId = getIdFromBool condResult
+      (var2, inst2, varInst2, stackInst2) <- generateExprSt thenE
+      (var3, inst3, varInst3, stackInst3) <- generateExprSt elseE
+      let ExprResult(id2,type2)=var2
+      let ExprResult(id3,type3)=var3
+      let varType = DTypePointer Function type2
+
+      id <- gets idCount
+      envs <- gets env
+
+      er <- insertResultSt (ResultVariable (envs, "ifThen"++show (id+1), type2)) Nothing
+      (varTypeId,inst4)<-generateTypeSt varType
+      let result@(ExprResult(varId,_)) =er
+      let sInst1' = stackInst1
+            ++ [Instruction (Nothing, OpSelectionMerge (Id (id + 4)) None)]
+            ++ [Instruction (Nothing, OpBranchConditional conditionId (Id (id + 2)) (Id (id + 3)))]
+
+      let sInst2' = [Instruction (Nothing, Comment "then branch"),
+            Instruction (Just (Id (id + 2)), OpLabel)]
+            ++ stackInst2
+            ++ [Instruction (Nothing, OpStore varId id2),
+            Instruction (Nothing, OpBranch (Id (id + 4)))]
+      let sInst3' = [Instruction (Nothing, Comment "else branch")]
+            ++ [Instruction (Just (Id (id + 3)), OpLabel)]
             ++ stackInst3
-            ++ [noReturnInstruction (OpBranch (Id (id + 3)))]
-            ++ [returnedInstruction (Id (id + 3)) (OpLabel)]
-    -- modify (\s -> s{idCount = id + 3})
-    -- TODO: handle return variable
-    return (var3, inst1 +++ inst2 +++ inst3, varInst1 ++ varInst2 ++ varInst3, sInst1' ++ sInst2' ++ sInst3')
+            ++ [Instruction (Nothing, OpStore varId id3)]
+            ++ [Instruction (Nothing, OpBranch (Id (id + 4)))]
+
+            ++ [Instruction (Just (Id (id + 4)), OpLabel)]
+            ++ [Instruction (Just (Id (id + 5)), OpLoad varTypeId varId)]
+      let varInst = varInst1 ++ varInst2 ++ varInst3 ++ [Instruction (Just varId, OpVariable varTypeId Function)]
+      modify (\s -> s{idCount = id +5})
+      return ( ExprResult (Id (id + 5),type2), inst1 +++ inst2 +++ inst3+++inst4,varInst, sInst1' ++ sInst2' ++ sInst3')
+
+
 generateExprSt (Ast.ENeg _ e) =
   do
     (_er, inst1, varInst1, stackInst1) <- generateExprSt e
