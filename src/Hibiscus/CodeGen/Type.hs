@@ -109,6 +109,18 @@ data LanxSt = LanxSt
   }
   deriving (Show)
 
+nextOpId :: State LanxSt Asm.OpId
+nextOpId =
+  do
+    modify (\s -> s{idCount = idCount s + 1})
+    gets (Asm.Id . idCount)
+
+nextOpIdName :: (Int -> String) -> State LanxSt Asm.OpId
+nextOpIdName f =
+  do
+    modify (\s -> s{idCount = idCount s + 1})
+    gets (Asm.IdName . f . idCount)
+
 data HeaderFields = HeaderFields
   { capabilityInst :: Maybe Asm.Instruction
   , extensionInst :: Maybe Asm.Instruction

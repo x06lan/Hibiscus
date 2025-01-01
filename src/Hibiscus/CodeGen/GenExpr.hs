@@ -26,6 +26,7 @@ import qualified Hibiscus.Lexer as L
 import qualified Hibiscus.Type4plus as TI
 import Hibiscus.Util (foldMaplM, foldMaprM)
 
+
 type VeryImportantTuple = (ExprReturn, Instructions, VariableInst, StackInst)
 
 ----- Below are used by a lot of place
@@ -54,10 +55,8 @@ generateEntrySt key =
         let opid = Asm.IdName nameWithEnv
         returnAndUpdateMap $ ExprResult (opid, varType)
       ResultVariableValue (_, _, varType) -> do
-        currentCount <- gets idCount
-        let var = (Asm.Id (currentCount + 1), varType)
-        modify (\s -> s{idCount = idCount s + 1})
-        returnAndUpdateMap $ ExprResult var
+        varId <- nextOpId
+        returnAndUpdateMap $ ExprResult (varId, varType)
 
 -- TODO: unwrap this function to two function
 insertResultSt :: ResultType -> Maybe ExprReturn -> State LanxSt ExprReturn
@@ -149,9 +148,8 @@ generateTypeSt dType = do
 generateNegOpSt :: Variable -> State LanxSt (Variable, StackInst)
 generateNegOpSt v@(e, t) =
   do
-    id <- gets (Asm.Id . idCount)
+    id <- nextOpId
     typeId <- gets (\s -> searchTypeId s t)
-    modify (\s -> s{idCount = idCount s + 1})
     let asmop =
           case t of
             t | t == DT.bool -> Asm.OpLogicalNot typeId e
@@ -169,8 +167,7 @@ generateBinOpSt v1@(e1, t1) op v2@(e2, t2) =
       typeId1 <- gets (\s -> searchTypeId s t1)
       typeId2 <- gets (\s -> searchTypeId s t2)
       (boolId, inst) <- generateTypeSt DT.DTypeBool
-      modify (\s -> s{idCount = idCount s + 1})
-      id <- gets (Asm.Id . idCount)
+      id <- nextOpId
       let (resultType, instruction) =
             case (t1, t2) of
               (t1, t2)
@@ -280,9 +277,7 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
 
     (inst2, paramInst) <- generateFunctionParamSt args
 
-    modify (\s -> s{idCount = idCount s + 1})
-
-    labelId <- gets (Asm.Id . idCount)
+    labelId <- nextOpId
 
     (er, inst3, varInst, exprInst) <- generateExprSt e
     let ExprResult (resultId, _) = er
@@ -367,9 +362,7 @@ generateConstSt v =  do
 applyFunctionSt_aux1 :: (Asm.OpId, (Asm.OpId, b)) -> State LanxSt ([(Asm.OpId, (Asm.OpId, b))], VariableInst, StackInst)
 applyFunctionSt_aux1 (typeId, t) =
   do
-    id <- gets idCount
-    let varId = Asm.IdName ("param_" ++ show id)
-    modify (\s -> s{idCount = idCount s + 1})
+    varId <- nextOpIdName (\i -> "param_" ++ show i)
     return
       ( [(varId, t)]
       , [returnedInstruction varId (Asm.OpVariable typeId Asm.Function)]
@@ -383,10 +376,9 @@ applyFunctionSt id returnType args =
     let makeAssociative (id, inst) = ([id], inst)
     (typeIds, inst1) <- foldMaprM (fmap makeAssociative . generateTypeSt . DT.DTypePointer Asm.Function . snd) args
 
-    modify (\s -> s{idCount = idCount s + 1})
     (vars, varInst, stackInst) <- foldMaplM applyFunctionSt_aux1 $ zip typeIds args
 
-    resultId <- gets (Asm.Id . idCount)
+    resultId <- nextOpId
     let stackInst' = returnedInstruction resultId (Asm.OpFunctionCall searchTypeId_state0_returnType id (Asm.ShowList (map fst vars)))
     -- (state', vars, typeInst, inst') = foldl (\(s, v, t, i) arg -> let (s', v', t', i') = functionPointer s arg in (s', v' : v, t ++ t', i ++ i')) (state, [], [], []) args
     -- state' = state {idCount = idCount state + 1}
@@ -396,8 +388,7 @@ handleConstructorSt :: DataType -> DataType -> [Variable] -> State LanxSt VeryIm
 handleConstructorSt returnType functionType args =
   do
     (typeId, inst) <- generateTypeSt returnType
-    modify (\s -> s{idCount = idCount s + 1})
-    returnId <- gets (Asm.Id . idCount) -- handle type convert
+    returnId <- nextOpId -- handle type convert
     let stackInst = [returnedInstruction returnId (Asm.OpCompositeConstruct typeId (Asm.ShowList (map fst args)))]
     return (ExprResult (returnId, returnType), inst, [], stackInst)
 
@@ -405,8 +396,7 @@ handleExtractSt :: DataType -> [Int] -> Variable -> State LanxSt VeryImportantTu
 handleExtractSt returnType i var@(opId, _) =
   do
     (typeId, inst) <- generateTypeSt returnType
-    modify (\s -> s{idCount = idCount s + 1})
-    returnId <- gets (Asm.Id . idCount)
+    returnId <- nextOpId
     let stackInst = [returnedInstruction returnId (Asm.OpCompositeExtract typeId opId (Asm.ShowList i))]
     return (ExprResult (returnId, returnType), inst, [], stackInst)
 
@@ -503,45 +493,55 @@ generateExprSt (Ast.EIfThenElse _ cond thenE elseE) =
     getIdFromBool _ = error "Expected bool"
    in
     do
-      (condResult, inst1, varInst1, stackInst1) <- generateExprSt cond
-      let conditionId = getIdFromBool condResult
-      (var2, inst2, varInst2, stackInst2) <- generateExprSt thenE
-      (var3, inst3, varInst3, stackInst3) <- generateExprSt elseE
-      let ExprResult (id2, type2) = var2
-      let ExprResult (id3, type3) = var3
-      let varType = DT.DTypePointer Asm.Function type2
+      (_erCondResult, inst1, varInst1, stackInstCond) <- generateExprSt cond
+      let conditionId = getIdFromBool _erCondResult
+      (_erThen, inst2, varInst2, stackInstThen) <- generateExprSt thenE
+      (_erElse, inst3, varInst3, stackInstElse) <- generateExprSt elseE
+      let ExprResult (thenResultId, returnType) = _erThen
+      let ExprResult (elseResultId, _rt') = _erElse
+      -- when (returnType != _rt')
+      --   error "type infer fucked up, then-branch-type is not same as else-branch-type"
+      let varType = DT.DTypePointer Asm.Function returnType
       (varTypeId, inst4) <- generateTypeSt varType
-      (varValueTypeId, inst5) <- generateTypeSt type2
+      (varValueTypeId, inst5) <- generateTypeSt returnType
 
-      id <- gets idCount
+      opid_plus_1 <- nextOpId
+      let (Asm.Id opid_plus_1_num) = opid_plus_1
+      thenLabelId <- nextOpId
+      elseLabelId <- nextOpId
+      ifThenElseEndLabelId <- nextOpId
+      finalReturnId <- nextOpId
+
       envs <- gets env
+      _er <- insertResultSt (ResultVariable (envs, "ifThen" ++ show (opid_plus_1_num), returnType)) Nothing
+      let (ExprResult (varId, _)) = _er
 
-      er <- insertResultSt (ResultVariable (envs, "ifThen" ++ show (id + 1), type2)) Nothing
-      let result@(ExprResult (varId, _)) = er
-      let sInst1' =
-            stackInst1
-              ++ [Asm.Instruction (Nothing, Asm.OpSelectionMerge (Asm.Id (id + 4)) Asm.None)]
-              ++ [Asm.Instruction (Nothing, Asm.OpBranchConditional conditionId (Asm.Id (id + 2)) (Asm.Id (id + 3)))]
-
-      let sInst2' =
-            [ Asm.Instruction (Nothing, Asm.Comment "then branch")
-            , Asm.Instruction (Just (Asm.Id (id + 2)), Asm.OpLabel)
-            ]
-              ++ stackInst2
-              ++ [ Asm.Instruction (Nothing, Asm.OpStore varId id2)
-                 , Asm.Instruction (Nothing, Asm.OpBranch (Asm.Id (id + 4)))
-                 ]
-      let sInst3' =
-            [Asm.Instruction (Nothing, Asm.Comment "else branch")]
-              ++ [Asm.Instruction (Just (Asm.Id (id + 3)), Asm.OpLabel)]
-              ++ stackInst3
-              ++ [Asm.Instruction (Nothing, Asm.OpStore varId id3)]
-              ++ [Asm.Instruction (Nothing, Asm.OpBranch (Asm.Id (id + 4)))]
-              ++ [Asm.Instruction (Just (Asm.Id (id + 4)), Asm.OpLabel)]
-              ++ [Asm.Instruction (Just (Asm.Id (id + 5)), Asm.OpLoad varValueTypeId varId)]
-      let varInst = varInst1 ++ varInst2 ++ varInst3 ++ [Asm.Instruction (Just varId, Asm.OpVariable varTypeId Asm.Function)]
-      modify (\s -> s{idCount = id + 5})
-      return (ExprResult (Asm.Id (id + 5), type2), inst1 +++ inst2 +++ inst3 +++ inst4+++inst5, varInst, sInst1' ++ sInst2' ++ sInst3')
+      let sInst' =
+        -- sInst1'
+            stackInstCond ++
+            [noReturnInstruction $ Asm.OpSelectionMerge (ifThenElseEndLabelId) Asm.None] ++
+            [noReturnInstruction $ Asm.OpBranchConditional conditionId (thenLabelId) (elseLabelId)] ++ 
+        -- sInst2'
+            [commentInstruction "then branch"] ++
+            [returnedInstruction (thenLabelId) Asm.OpLabel] ++
+            stackInstThen ++
+            [noReturnInstruction $ Asm.OpStore varId thenResultId] ++
+            [noReturnInstruction $ Asm.OpBranch (ifThenElseEndLabelId)] ++
+        -- sInst3'
+            [commentInstruction "else branch"] ++
+            [returnedInstruction (elseLabelId) Asm.OpLabel] ++
+            stackInstElse ++
+            [noReturnInstruction $ Asm.OpStore varId elseResultId] ++
+            [noReturnInstruction $ Asm.OpBranch (ifThenElseEndLabelId)] ++
+        --
+            [returnedInstruction (ifThenElseEndLabelId) Asm.OpLabel] ++
+            [returnedInstruction (finalReturnId) $ Asm.OpLoad varValueTypeId varId]
+      let varInst = varInst1 ++ varInst2 ++ varInst3 ++ [returnedInstruction varId $ Asm.OpVariable varTypeId Asm.Function]
+      return (
+        ExprResult (finalReturnId, returnType),
+        inst1 +++ inst2 +++ inst3 +++ inst4 +++ inst5,
+        varInst,
+        sInst')
 generateExprSt (Ast.ENeg _ e) =
   do
     (_er, inst1, varInst1, stackInst1) <- generateExprSt e

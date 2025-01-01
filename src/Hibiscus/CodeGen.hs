@@ -108,8 +108,8 @@ generateMainFunctionSt inst cfg (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     _er <- insertResultSt (ResultCustom "func ") (Just (ExprResult (Asm.IdName (BS.unpack name), functionType)))
     let ExprResult (funcId, _) = _er
 
-    modify (\s -> s{idCount = idCount s + 1, env = global : [(BS.unpack name, functionType)]})
-    labelId <- gets (Asm.Id . idCount)
+    modify (\s -> s{env = global : [(BS.unpack name, functionType)]})
+    labelId <- nextOpId
 
     inst2 <- generateUniformsSt cfg args
     (_er, inst3, varInst, exprInst) <- generateExprSt e
