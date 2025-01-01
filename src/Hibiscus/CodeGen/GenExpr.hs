@@ -10,6 +10,7 @@ module Hibiscus.CodeGen.GenExpr where
 
 import Control.Monad.State.Lazy
 import qualified Data.ByteString.Lazy.Char8 as BS
+import Data.Data (isNorepType)
 import Data.List (find, intercalate)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -30,6 +31,9 @@ type VeryImportantTuple = (ExprReturn, Instructions, VariableInst, StackInst)
 
 ----- Below are used by a lot of place
 
+incrementIdCounter :: State LanxSt ()
+incrementIdCounter = modify (\s -> s{idCount = idCount s + 1})
+
 -- Helper function to generate a new entry for the IdType
 -- used by insertResultSt
 generateEntrySt :: ResultType -> State LanxSt ExprReturn
@@ -37,7 +41,7 @@ generateEntrySt key =
   let
     returnAndUpdateMap :: ExprReturn -> State LanxSt ExprReturn
     returnAndUpdateMap er = do
-      modify (\s -> s{idMap = Map.insert key er $ idMap s})
+      insertResult' key er
       return er
     flattenTuples :: [(String, DataType)] -> [String]
     flattenTuples = concatMap (\(x, y) -> [x, show y])
@@ -56,7 +60,7 @@ generateEntrySt key =
       ResultVariableValue (_, _, varType) -> do
         currentCount <- gets idCount
         let var = (Asm.Id (currentCount + 1), varType)
-        modify (\s -> s{idCount = idCount s + 1})
+        incrementIdCounter
         returnAndUpdateMap $ ExprResult var
 
 -- TODO: unwrap this function to two function
@@ -69,8 +73,19 @@ insertResultSt key maybeER = do
       case maybeER of
         Nothing -> generateEntrySt key
         Just value -> do
-          modify (\s -> s{idMap = Map.insert key value $ idMap s}) 
+          insertResult' key value
           return value
+
+insertResult' :: ResultType -> ExprReturn -> State LanxSt ()
+insertResult' key value =
+  do
+    m <- gets idMap
+    if isNothing $ Map.lookup key m
+      then
+        modify (\s -> s{idMap = Map.insert key value m})
+      else
+        -- don't comment me out :'(
+        error "duplicate key in idMap"
 
 generateTypeSt_aux1 :: DataType -> State LanxSt Instructions
 generateTypeSt_aux1 dType = do
@@ -179,7 +194,7 @@ generateBinOp state v1@(e1, t1) op v2@(e2, t2) =
   let typeId1 = searchTypeId state t1
       typeId2 = searchTypeId state t2
       -- TODO: fix bool result type id
-      ((boolI,_),state') = runState (generateTypeSt DT.DTypeBool) state
+      ((boolI, _), state') = runState (generateTypeSt DT.DTypeBool) state
       state'' =
         state'
           { idCount = idCount state' + 1
@@ -246,7 +261,7 @@ generateDecSt (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
     (result, inst2, varInst, stackInst) <- generateExprSt e
     -- env_state2 <- gets env
     -- _ <- insertResultSt (ResultVariable (env_state2, BS.unpack name, varType)) (Just result)
-    env_state3 <- gets env 
+    env_state3 <- gets env
     -- idMap should not have insert key
     _ <- insertResultSt (ResultVariableValue (env_state3, BS.unpack name, varType)) (Just result)
     return (inst1 +++ inst2, varInst, stackInst)
@@ -294,7 +309,7 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
 
     (inst2, paramInst) <- generateFunctionParamSt args
 
-    modify (\s -> s{idCount = idCount s + 1})
+    incrementIdCounter
 
     labelId <- gets (Asm.Id . idCount)
 
@@ -378,7 +393,7 @@ applyFunctionSt_aux1 (typeId, t) =
   do
     id <- gets idCount
     let varId = Asm.IdName ("param_" ++ show id)
-    modify (\s -> s{idCount = idCount s + 1})
+    incrementIdCounter
     return
       ( [(varId, t)]
       , [returnedInstruction varId (Asm.OpVariable typeId Asm.Function)]
@@ -392,7 +407,7 @@ applyFunctionSt id returnType args =
     let makeAssociative (id, inst) = ([id], inst)
     (typeIds, inst1) <- foldMaprM (fmap makeAssociative . generateTypeSt . DT.DTypePointer Asm.Function . snd) args
 
-    modify (\s -> s{idCount = idCount s + 1})
+    incrementIdCounter
     (vars, varInst, stackInst) <- foldMaplM applyFunctionSt_aux1 $ zip typeIds args
 
     resultId <- gets (Asm.Id . idCount)
@@ -405,7 +420,7 @@ handleConstructorSt :: DataType -> DataType -> [Variable] -> State LanxSt VeryIm
 handleConstructorSt returnType functionType args =
   do
     (typeId, inst) <- generateTypeSt returnType
-    modify (\s -> s{idCount = idCount s + 1})
+    incrementIdCounter
     returnId <- gets (Asm.Id . idCount) -- handle type convert
     let stackInst = [returnedInstruction returnId (Asm.OpCompositeConstruct typeId (Asm.ShowList (map fst args)))]
     return (ExprResult (returnId, returnType), inst, [], stackInst)
@@ -414,7 +429,7 @@ handleExtractSt :: DataType -> [Int] -> Variable -> State LanxSt VeryImportantTu
 handleExtractSt returnType i var@(opId, _) =
   do
     (typeId, inst) <- generateTypeSt returnType
-    modify (\s -> s{idCount = idCount s + 1})
+    incrementIdCounter
     returnId <- gets (Asm.Id . idCount)
     let stackInst = [returnedInstruction returnId (Asm.OpCompositeExtract typeId opId (Asm.ShowList i))]
     return (ExprResult (returnId, returnType), inst, [], stackInst)
@@ -523,6 +538,7 @@ generateExprSt (Ast.EIfThenElse _ cond thenE elseE) =
       id <- gets idCount
       envs <- gets env
 
+      -- TODO: maybe use writer monad
       er <- insertResultSt (ResultVariable (envs, "ifThen" ++ show (id + 1), type2)) Nothing
       (varTypeId, inst4) <- generateTypeSt varType
       let result@(ExprResult (varId, _)) = er
