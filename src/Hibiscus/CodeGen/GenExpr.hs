@@ -59,7 +59,7 @@ generateEntrySt key =
         modify (\s -> s{idCount = idCount s + 1})
         returnAndUpdateMap $ ExprResult var
 
--- used by a lot of place
+-- TODO: unwrap this function to two function
 insertResultSt :: ResultType -> Maybe ExprReturn -> State LanxSt ExprReturn
 insertResultSt key maybeER = do
   state <- get
