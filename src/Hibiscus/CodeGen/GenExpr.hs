@@ -69,7 +69,7 @@ insertResultSt key maybeER = do
       case maybeER of
         Nothing -> generateEntrySt key
         Just value -> do
-          modify (\s -> s{idMap = Map.insert key value $ idMap s}) 
+          modify (\s -> s{idMap = Map.insert key value $ idMap s})
           return value
 
 generateTypeSt_aux1 :: DataType -> State LanxSt Instructions
@@ -167,72 +167,63 @@ generateNegOpSt v = state $ \state ->
       result = (id, t)
    in ((result, inst), state')
 
--- TODO: Unfinished Monad-ise
-generateBinOpSt :: Variable -> Ast.Op (L.Range, Type) -> Variable -> State LanxSt (Variable, Instructions, StackInst)
-generateBinOpSt v1 op v2 = state $ \s ->
-  let (s', v, i, si) = generateBinOp s v1 op v2
-   in ((v, i, si), s')
-
 -- used by generateExprSt (Ast.EBinOp _ e1 op e2)
-generateBinOp :: LanxSt -> Variable -> Ast.Op (L.Range, Type) -> Variable -> (LanxSt, Variable, Instructions, StackInst)
-generateBinOp state v1@(e1, t1) op v2@(e2, t2) =
-  let typeId1 = searchTypeId state t1
-      typeId2 = searchTypeId state t2
-      -- TODO: fix bool result type id
-      ((boolI,_),state') = runState (generateTypeSt DT.DTypeBool) state
-      state'' =
-        state'
-          { idCount = idCount state' + 1
-          }
-      id = Asm.Id (idCount state')
-      (resultType, instruction) =
-        case (t1, t2) of
-          (t1, t2)
-            | t1 == DT.bool && t2 == DT.bool ->
-                case op of
-                  Ast.Eq _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalEqual typeId1 e1 e2))
-                  Ast.Neq _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalNotEqual typeId1 e1 e2))
-                  Ast.And _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalAnd typeId1 e1 e2))
-                  Ast.Or _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalOr typeId1 e1 e2))
-            | t1 == DT.int32 && t2 == DT.int32 ->
-                case op of
-                  Ast.Plus _ -> (DT.int32, returnedInstruction id (Asm.OpIAdd typeId1 e1 e2))
-                  Ast.Minus _ -> (DT.int32, returnedInstruction id (Asm.OpISub typeId1 e1 e2))
-                  Ast.Times _ -> (DT.int32, returnedInstruction id (Asm.OpIMul typeId1 e1 e2))
-                  Ast.Divide _ -> (DT.int32, returnedInstruction id (Asm.OpSDiv typeId1 e1 e2))
-                  Ast.Eq _ -> (DT.bool, returnedInstruction id (Asm.OpIEqual typeId1 e1 e2))
-                  Ast.Neq _ -> (DT.bool, returnedInstruction id (Asm.OpINotEqual typeId1 e1 e2))
-                  Ast.Lt _ -> (DT.bool, returnedInstruction id (Asm.OpSLessThan typeId1 e1 e2))
-                  Ast.Le _ -> (DT.bool, returnedInstruction id (Asm.OpSLessThanEqual typeId1 e1 e2))
-                  Ast.Gt _ -> (DT.bool, returnedInstruction id (Asm.OpSGreaterThan typeId1 e1 e2))
-                  Ast.Ge _ -> (DT.bool, returnedInstruction id (Asm.OpSGreaterThanEqual typeId1 e1 e2))
-            | t1 == DT.int32 && t2 == DT.float32 -> error "Not implemented"
-            | t1 == DT.float32 && t2 == DT.int32 -> error "Not implemented"
-            | t1 == DT.float32 && t2 == DT.float32 ->
-                case op of
-                  Ast.Plus _ -> (DT.float32, returnedInstruction id (Asm.OpFAdd typeId1 e1 e2))
-                  Ast.Minus _ -> (DT.float32, returnedInstruction id (Asm.OpFSub typeId1 e1 e2))
-                  Ast.Times _ -> (DT.float32, returnedInstruction id (Asm.OpFMul typeId1 e1 e2))
-                  Ast.Divide _ -> (DT.float32, returnedInstruction id (Asm.OpFDiv typeId1 e1 e2))
-                  Ast.Eq _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdEqual typeId1 e1 e2))
-                  Ast.Neq _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdNotEqual typeId1 e1 e2))
-                  Ast.Lt _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdLessThan typeId1 e1 e2))
-                  Ast.Le _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdLessThanEqual typeId1 e1 e2))
-                  Ast.Gt _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdGreaterThan typeId1 e1 e2))
-                  Ast.Ge _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdGreaterThanEqual typeId1 e1 e2))
-            | t1 == t2 && (t1 == DT.vector2 || t1 == DT.vector3 || t1 == DT.vector4) ->
-                case op of
-                  Ast.Plus _ -> (t1, returnedInstruction id (Asm.OpFAdd typeId1 e1 e2))
-                  Ast.Minus _ -> (t1, returnedInstruction id (Asm.OpFSub typeId1 e1 e2))
-                  Ast.Times _ -> (t1, returnedInstruction id (Asm.OpFMul typeId1 e1 e2))
-            | (t1 == DT.vector2 || t1 == DT.vector3 || t1 == DT.vector4) && (t2 == DT.int32 || t2 == DT.float32) ->
-                case op of
-                  Ast.Times _ -> (DT.vector2, returnedInstruction id (Asm.OpVectorTimesScalar typeId1 e1 e2))
-            | (t1 == DT.int32 || t1 == DT.float32) && (t2 == DT.vector2 || t2 == DT.vector3 || t2 == DT.vector4) ->
-                case op of
-                  Ast.Times _ -> (DT.vector2, returnedInstruction id (Asm.OpVectorTimesScalar typeId1 e1 e2))
-          _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
-   in (state', (id, resultType), emptyInstructions, [instruction])
+generateBinOpSt :: Variable -> Ast.Op (L.Range, Type) -> Variable -> State LanxSt (Variable, Instructions, StackInst)
+generateBinOpSt v1@(e1, t1) op v2@(e2, t2) =
+  do
+      typeId1 <- gets (\s -> searchTypeId s t1)
+      typeId2 <- gets (\s -> searchTypeId s t2)
+      (boolI, _) <- generateTypeSt DT.DTypeBool
+      modify (\s -> s{idCount = idCount s + 1})
+      id <- gets (Asm.Id . idCount)
+      let (resultType, instruction) =
+            case (t1, t2) of
+              (t1, t2)
+                | t1 == DT.bool && t2 == DT.bool ->
+                    case op of
+                      Ast.Eq _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalEqual typeId1 e1 e2))
+                      Ast.Neq _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalNotEqual typeId1 e1 e2))
+                      Ast.And _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalAnd typeId1 e1 e2))
+                      Ast.Or _ -> (DT.bool, returnedInstruction id (Asm.OpLogicalOr typeId1 e1 e2))
+                | t1 == DT.int32 && t2 == DT.int32 ->
+                    case op of
+                      Ast.Plus _ -> (DT.int32, returnedInstruction id (Asm.OpIAdd typeId1 e1 e2))
+                      Ast.Minus _ -> (DT.int32, returnedInstruction id (Asm.OpISub typeId1 e1 e2))
+                      Ast.Times _ -> (DT.int32, returnedInstruction id (Asm.OpIMul typeId1 e1 e2))
+                      Ast.Divide _ -> (DT.int32, returnedInstruction id (Asm.OpSDiv typeId1 e1 e2))
+                      Ast.Eq _ -> (DT.bool, returnedInstruction id (Asm.OpIEqual typeId1 e1 e2))
+                      Ast.Neq _ -> (DT.bool, returnedInstruction id (Asm.OpINotEqual typeId1 e1 e2))
+                      Ast.Lt _ -> (DT.bool, returnedInstruction id (Asm.OpSLessThan typeId1 e1 e2))
+                      Ast.Le _ -> (DT.bool, returnedInstruction id (Asm.OpSLessThanEqual typeId1 e1 e2))
+                      Ast.Gt _ -> (DT.bool, returnedInstruction id (Asm.OpSGreaterThan typeId1 e1 e2))
+                      Ast.Ge _ -> (DT.bool, returnedInstruction id (Asm.OpSGreaterThanEqual typeId1 e1 e2))
+                | t1 == DT.int32 && t2 == DT.float32 -> error "Not implemented"
+                | t1 == DT.float32 && t2 == DT.int32 -> error "Not implemented"
+                | t1 == DT.float32 && t2 == DT.float32 ->
+                    case op of
+                      Ast.Plus _ -> (DT.float32, returnedInstruction id (Asm.OpFAdd typeId1 e1 e2))
+                      Ast.Minus _ -> (DT.float32, returnedInstruction id (Asm.OpFSub typeId1 e1 e2))
+                      Ast.Times _ -> (DT.float32, returnedInstruction id (Asm.OpFMul typeId1 e1 e2))
+                      Ast.Divide _ -> (DT.float32, returnedInstruction id (Asm.OpFDiv typeId1 e1 e2))
+                      Ast.Eq _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdEqual typeId1 e1 e2))
+                      Ast.Neq _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdNotEqual typeId1 e1 e2))
+                      Ast.Lt _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdLessThan typeId1 e1 e2))
+                      Ast.Le _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdLessThanEqual typeId1 e1 e2))
+                      Ast.Gt _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdGreaterThan typeId1 e1 e2))
+                      Ast.Ge _ -> (DT.bool, returnedInstruction id (Asm.OpFOrdGreaterThanEqual typeId1 e1 e2))
+                | t1 == t2 && (t1 == DT.vector2 || t1 == DT.vector3 || t1 == DT.vector4) ->
+                    case op of
+                      Ast.Plus _ -> (t1, returnedInstruction id (Asm.OpFAdd typeId1 e1 e2))
+                      Ast.Minus _ -> (t1, returnedInstruction id (Asm.OpFSub typeId1 e1 e2))
+                      Ast.Times _ -> (t1, returnedInstruction id (Asm.OpFMul typeId1 e1 e2))
+                | (t1 == DT.vector2 || t1 == DT.vector3 || t1 == DT.vector4) && (t2 == DT.int32 || t2 == DT.float32) ->
+                    case op of
+                      Ast.Times _ -> (DT.vector2, returnedInstruction id (Asm.OpVectorTimesScalar typeId1 e1 e2))
+                | (t1 == DT.int32 || t1 == DT.float32) && (t2 == DT.vector2 || t2 == DT.vector3 || t2 == DT.vector4) ->
+                    case op of
+                      Ast.Times _ -> (DT.vector2, returnedInstruction id (Asm.OpVectorTimesScalar typeId1 e1 e2))
+              _ -> error ("Not implemented" ++ show t1 ++ show op ++ show t2)
+      return ((id, resultType), emptyInstructions, [instruction])
 
 ----- Below are directly used by generateExprSt
 
@@ -246,7 +237,7 @@ generateDecSt (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
     (result, inst2, varInst, stackInst) <- generateExprSt e
     -- env_state2 <- gets env
     -- _ <- insertResultSt (ResultVariable (env_state2, BS.unpack name, varType)) (Just result)
-    env_state3 <- gets env 
+    env_state3 <- gets env
     -- idMap should not have insert key
     _ <- insertResultSt (ResultVariableValue (env_state3, BS.unpack name, varType)) (Just result)
     return (inst1 +++ inst2, varInst, stackInst)
