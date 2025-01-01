@@ -147,25 +147,20 @@ generateTypeSt dType = do
 
 -- used by generateExprSt (Ast.ENeg _ e)
 generateNegOpSt :: Variable -> State LanxSt (Variable, StackInst)
-generateNegOpSt v = state $ \state ->
-  let id = Asm.Id (idCount state + 1)
-      (e, t, typeId) = (fst v, snd v, searchTypeId state (snd v))
-      state' =
-        state
-          { idCount = idCount state + 1
-          }
-      inst =
-        case t of
-          t
-            | t == DT.bool ->
-                [returnedInstruction id (Asm.OpLogicalNot typeId e)]
-            | t == DT.int32 ->
-                [returnedInstruction id (Asm.OpSNegate typeId e)]
-            | t == DT.float32 ->
-                [returnedInstruction id (Asm.OpFNegate typeId e)]
-          _ -> error ("not support neg of " ++ show t)
-      result = (id, t)
-   in ((result, inst), state')
+generateNegOpSt v@(e, t) =
+  do
+    id <- gets (Asm.Id . idCount)
+    typeId <- gets (\s -> searchTypeId s t)
+    modify (\s -> s{idCount = idCount s + 1})
+    let asmop =
+          case t of
+            t | t == DT.bool -> Asm.OpLogicalNot typeId e
+              | t == DT.int32 -> Asm.OpSNegate typeId e
+              | t == DT.float32 -> Asm.OpFNegate typeId e
+            _ -> error ("not support neg of " ++ show t)
+    let inst = returnedInstruction id asmop
+    let result = (id, t)
+    return (result, [inst])
 
 -- used by generateExprSt (Ast.EBinOp _ e1 op e2)
 generateBinOpSt :: Variable -> Ast.Op (L.Range, Type) -> Variable -> State LanxSt (Variable, Instructions, StackInst)
