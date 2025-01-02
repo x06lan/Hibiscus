@@ -4,6 +4,7 @@
 
 module Hibiscus.TypeInfer.Type4plus where
 
+import Hibiscus.Util (fmap2nd)
 import Hibiscus.Ast
 
 import Data.Functor (void)
@@ -21,9 +22,9 @@ import Debug.Trace
 
 import Hibiscus.TypeInfer.RSF
 
+
 type TypeEnv = Map.Map (Name ()) (Type ()) 
 newtype Subst = Subst (Map.Map MetaSymbol (Type ())) deriving (Show) -- responsible to maintain all metas
-type Context = (TypeEnv, Subst)
 
 instance Semigroup Subst where
   s1@(Subst map1) <> (Subst map2) = Subst $ Map.map (applySub s1) map2 `Map.union` map1
@@ -44,6 +45,7 @@ instance Substable (Type ()) where
       ta' = applySub s ta
       tb' = applySub s tb
   applySub _ t = t
+
 
 literalT :: String -> Type ()
 literalT = TVar () . Name () . pack
@@ -74,14 +76,14 @@ freshTypeUnkRS :: RSF TypeEnv Subst (Type ())
 freshTypeUnkRS =
   do
     lastnum <- gets (\(Subst s) -> maximum $ [0] ++ Map.keys s)
-    let t' = 1 + lastnum
     let newSym = 1 + lastnum
+
     let t' = TUnknown () newSym
     let nm = Subst $ Map.fromList [(newSym, t')]
     modify (\s -> nm <> s)
     return t'
 
-envFrom ::  Context -> [Dec a] -> Result Context
+envFrom ::  (TypeEnv, Subst) -> [Dec a] -> Result (TypeEnv, Subst)
 envFrom = foldlM decToCxt
   where
     decToCxt :: (TypeEnv, Subst) -> Dec a -> Result (TypeEnv, Subst)
@@ -117,9 +119,6 @@ getType :: (Foldable f, Functor f) => f (a, Type b) -> Type b
 getType = snd . foldr1 (\aa _ -> aa) -- XXX: IDK what exectly foldr1 do
 forget :: (Functor f) => f (a, Type b) -> f a
 forget = fmap fst
-
-fmap2nd :: (Functor f) => (b -> b) -> f (a, b) -> f (a, b)
-fmap2nd f = fmap (second f)
 
 applySubM :: (Functor f) => Subst -> f (a, Type ()) -> f (a, Type ())
 applySubM sub = fmap2nd (applySub sub)
@@ -203,8 +202,6 @@ inferExprRS expr =
     t <- freshTypeUnkRS
     return $ addType t expr
 
-
-
 inferDecsRS :: [Dec a] -> RSF TypeEnv Subst [Dec (a, Type ())]
 inferDecsRS = foldlM aux []
   where
@@ -234,7 +231,7 @@ inferDecsRS = foldlM aux []
           let arg' = addType t arg
           return (arg' : args)
 
-inferDecs :: Context -> [Dec a] -> Result [Dec (a, Type ())]
+inferDecs :: (TypeEnv, Subst) -> [Dec a] -> Result [Dec (a, Type ())]
 inferDecs (env, sub) decs = evalRSF (inferDecsRS decs) env sub
 
 infer :: [Dec a] -> Result [Dec (a, Type ())]
