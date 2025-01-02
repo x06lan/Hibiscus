@@ -70,8 +70,8 @@ unify t1 t2
         _ -> error $ "Cannot unify " ++ show t1 ++ " with " ++ show t2
 
 unifyRS :: Type () -> Type () -> RSF e Subst ()
-unifyRS t1 t2
-  | t1 == t2 = return ()
+unifyRS t1_ t2_
+  | t1_ == t2_ = return ()
   | otherwise =
     let
       bindVar :: MetaSymbol -> Type () -> RSF e Subst ()
@@ -79,14 +79,16 @@ unifyRS t1 t2
         let newSub = Subst $ Map.fromList [(v, t)]
         modify (\s -> newSub <> s)
     in do
+      s <- get
+      let t1 = applySub s t1_
+      let t2 = applySub s t2_
       traceM ("unifying: " ++ show t1 ++ " ==? " ++ show t2)
       case (t1, t2) of
         (TUnknown _ v, t) -> bindVar v t
         (t, TUnknown _ v) -> bindVar v t
         (TArrow _ t1 t2, TArrow _ t1' t2') -> do
           unifyRS t1 t1'
-          s1 <- get
-          unifyRS (applySub s1 t2) (applySub s1 t2')
+          unifyRS t2 t2'
         _ -> error $ "Cannot unify " ++ show t1 ++ " with " ++ show t2
 
 freshTypeUnk :: Subst -> (Subst, Type ())
@@ -209,59 +211,40 @@ inferExprRS (ELetIn a decs body) =
         decs' <- inferDecsRS decs
         body' <- inferExprRS body
         return (decs', body')
-inferExprRS e =
+inferExprRS (EApp a f x) =
   do
-    s <- get
-    env <- ask
-    case inferExpr (env, s) e of
-      Right (s', e') -> do
-        put s'
-        return e'
-      Left e -> do
-        fail e
-
-inferExpr :: Context -> Expr a -> Result (Subst, Expr (a, Type ()))
-inferExpr ctx@(env,sub) expr = case expr of
-  EApp a f x -> do
-      -- tf = tx -> tv
-      (f', s1) <- runRSF (inferExprRS f) env sub
-      (x', s2) <- runRSF (inferExprRS x) env (s1 <> sub)
-      let tf = getType f'
-      let tx = getType x'
-      let (s3, tv) = freshTypeUnk (s2 <> s1 <> sub)
-      let s3210 = s3 <> s2 <> s1 <> sub
-      s4 <- unify (applySub s3210 tf) (TArrow () tx tv)
-      let s43210 = s4 <> s3210
-      let finalEApp = EApp (a, applySub s4 tv) (applySubM s43210 f') (applySubM s43210 x')
-      return (s43210, finalEApp)
-  EBinOp a e1 biop e2 ->
-    do
-      (e1', s1) <- runRSF (inferExprRS e1) env sub
-      (e2', s2) <- runRSF (inferExprRS e2) env (s1 <> sub)
-      let t1 = getType e1'
-      let t2 = getType e2'
-      s3 <- unify t1 t2
-      let eType = applySub s3 t1
-      let finalType = if isBooleanOp biop then literalT "Bool" else eType
-      let finalSub = s3 <> s2 <> s1
-      return (finalSub, EBinOp (a,finalType) e1' (addType finalType biop) e2')
-  EIfThenElse a condE thenE elseE -> do
-    (cond', s1)  <- runRSF (inferExprRS condE) env sub
-    (elseE', s2) <- runRSF (inferExprRS elseE) env (s1 <> sub)
-    (thenE', s3) <- runRSF (inferExprRS thenE) env (s1 <> s2 <> sub)
-    let s321 = s3 <> s2 <> s1
-    s4 <- unify (applySub s321 $ getType cond') (literalT "Bool")
-    s5 <- unify (applySub (s4 <> s321) $ getType elseE') (applySub (s4 <> s321) $ getType thenE')
-    let finalSub = s5 <> s4 <> s321
-    let finalCond = applySubM finalSub cond'
-    let finalThen = applySubM finalSub thenE'
-    let finalElse = applySubM finalSub elseE'
-    let finalType = applySub finalSub $ getType elseE'
-    return $ (finalSub, EIfThenElse (a, finalType) finalCond finalThen finalElse)
-  _ -> return (s1, addType t expr)
-      -- TODO: fold
-    where
-      (s1, t) = freshTypeUnk sub
+    f' <- inferExprRS f
+    x' <- inferExprRS x
+    let tf = getType f'
+    let tx = getType x'
+    tv <- freshTypeUnkRS
+    unifyRS tf (TArrow () tx tv)
+    return $ EApp (a, tv) f' x'
+inferExprRS (EBinOp a e1 biop e2) =
+  do
+    e1' <- inferExprRS e1
+    e2' <- inferExprRS e2
+    let t1 = getType e1'
+    let t2 = getType e2'
+    unifyRS t1 t2
+    let eType = t1
+    let finalType = if isBooleanOp biop then literalT "Bool" else eType
+    return $ EBinOp (a, finalType) e1' (addType finalType biop) e2'
+inferExprRS (EIfThenElse a condE thenE elseE) =
+  do
+    condE' <- inferExprRS condE
+    elseE' <- inferExprRS elseE
+    thenE' <- inferExprRS thenE
+    let 
+    unifyRS (getType condE') (literalT "Bool")
+    unifyRS (getType elseE') (getType thenE')
+    let finalType = getType elseE'
+    return $ EIfThenElse (a, finalType) condE' thenE' elseE'
+-- TODO: fold
+inferExprRS expr =
+  do
+    t <- freshTypeUnkRS
+    return $ addType t expr
 
 -- TODO: Unfinished monad-ise
 inferDecsRS :: [Dec a] -> RSF TypeEnv Subst [Dec (a, Type ())]
