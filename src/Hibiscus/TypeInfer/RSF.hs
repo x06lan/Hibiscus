@@ -3,22 +3,12 @@
 module Hibiscus.TypeInfer.RSF (
     -- * The RSF monad
     RSF,
-    -- * The RWS monad
-    -- RWS,
-    -- rws,
-    -- runRWS,
-    -- evalRWS,
-    -- execRWS,
-    -- mapRWS,
-    -- withRWS,
-    -- * The RWST monad transformer
-    -- RWST,
-    -- rwsT,
-    -- runRWST,
-    -- evalRWST,
-    -- execRWST,
-    -- mapRWST,
-    -- withRWST,
+    rsf,
+    runRSF,
+    evalRSF,
+    execRSF,
+    mapRSF,
+    withRSF,
     -- * Reader operations
     reader,
     ask,
@@ -41,9 +31,9 @@ module Hibiscus.TypeInfer.RSF (
     Result,
     fail,
     -- * Lifting other operations
-    liftCallCC,
-    liftCallCC',
-    liftCatch,
+    -- liftCallCC,
+    -- liftCallCC',
+    -- liftCatch,
   ) where
 
 import Control.Monad.Trans.RWS
@@ -55,6 +45,25 @@ instance MonadFail Result where
   fail = Left
 
 -- MonadState + MonadReader + MonadFail
--- type RSF s e a = State s (ReaderT e Result a)
-
 type RSF r s = RWST r () s Result
+
+rsf :: (r -> s -> Result (a, s)) -> RSF r s a
+rsf f = RWST (\r s -> (fmap (\(a, s) -> (a ,s, ())) $ f r s))
+
+runRSF :: RSF r s a -> r -> s -> Result (a, s)
+runRSF m r s = fmap (\(a, s, _) -> (a, s)) $ (runRWST m r s)
+
+evalRSF :: RSF r s a -> r -> s -> Result a
+evalRSF r s = fmap (fmap fst) $ runRSF r s
+
+execRSF :: RSF r s a -> r -> s -> Result s
+execRSF r s = fmap (fmap snd) $ runRSF r s
+
+mapRSF :: ((a, s) -> (b, s)) -> RSF r s a -> RSF r s b
+mapRSF f = mapRWST $ fmap (xmap f)
+  where
+    xmap :: ((a, s) -> (b, s)) -> (a, s, ()) -> (b, s, ())
+    xmap g (a, s, _) = let (b, s') = g (a, s) in (b, s', ())
+
+withRSF :: (r' -> s -> (r, s)) -> RSF r s a -> RSF r' s a
+withRSF = withRWST
