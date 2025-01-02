@@ -48,24 +48,6 @@ instance Substable (Type ()) where
 literalT :: String -> Type ()
 literalT = TVar () . Name () . pack
 
-unify :: HasCallStack => Type () -> Type () -> Result Subst
-unify t1 t2
-  | t1 == t2 = return mempty
-  | otherwise =
-    let
-      bindVar :: MetaSymbol -> Type () -> Result Subst
-      bindVar v t = return $ Subst $ Map.fromList [(v,t)]
-    in
-      -- trace ("unifying: " ++ show t1 ++ " ==? " ++ show t2) $ 
-      case (t1, t2) of
-        (TUnknown _ v, t) -> bindVar v t
-        (t, TUnknown _ v) -> bindVar v t
-        (TArrow _ t1 t2, TArrow _ t1' t2') -> do
-          s1 <- unify t1 t1'
-          s2 <- unify (applySub s1 t2) (applySub s1 t2')
-          return (s1 <> s2)
-        _ -> error $ "Cannot unify " ++ show t1 ++ " with " ++ show t2
-
 unifyRS :: Type () -> Type () -> RSF e Subst ()
 unifyRS t1_ t2_
   | t1_ == t2_ = return ()
@@ -87,18 +69,6 @@ unifyRS t1_ t2_
           unifyRS t1 t1'
           unifyRS t2 t2'
         _ -> error $ "Cannot unify " ++ show t1 ++ " with " ++ show t2
-
-freshTypeUnk :: Subst -> (Subst, Type ())
-freshTypeUnk (Subst subs) = (Subst $ Map.fromList [(newSym, t')], t')
-  where
-    lastone = maximum $ [0] ++ Map.keys subs
-    newSym = 1 + lastone
-    t' = TUnknown () newSym
-
-freshTypeUnk' :: Subst -> (Subst, Type ())
-freshTypeUnk' s1 = (s2 <> s1, t')
-    where
-        (s2, t') = freshTypeUnk s1
 
 freshTypeUnkRS :: RSF TypeEnv Subst (Type ())
 freshTypeUnkRS =
@@ -153,17 +123,6 @@ fmap2nd f = fmap (second f)
 
 applySubM :: (Functor f) => Subst -> f (a, Type ()) -> f (a, Type ())
 applySubM sub = fmap2nd (applySub sub)
-
-magic :: Subst -> [Argument a] -> (Subst, [Argument (a, Type ())])
-magic sub = foldr aux (mempty, [])
-  where
-    aux :: Argument a -> (Subst, [Argument (a, Type ())]) -> (Subst, [Argument (a, Type ())])
-    aux arg (s1, args) =
-      let
-        (s2, t) = freshTypeUnk (s1 <> sub)
-        arg' = addType t arg
-      in 
-        (s2 <> s1, arg' : args)
 
 argToEnv :: [Argument (a, Type ())] -> TypeEnv
 argToEnv = Map.fromList . map (\(Argument (_,t) n) -> (void n,t))
@@ -244,49 +203,44 @@ inferExprRS expr =
     t <- freshTypeUnkRS
     return $ addType t expr
 
--- TODO: Unfinished monad-ise
-inferDecsRS :: [Dec a] -> RSF TypeEnv Subst [Dec (a, Type ())]
-inferDecsRS decs =
-  do
-    sub <- get
-    env <- ask
-    case inferDecs (env, sub) decs of
-      Right (s, x) ->
-        do
-          modify (s <>)
-          return x
-      Left x -> fail x
 
-inferDecs :: Context -> [Dec a] -> Result (Subst, [Dec (a, Type ())])
-inferDecs (env, sub) = foldlM aux (sub, [])
+
+inferDecsRS :: [Dec a] -> RSF TypeEnv Subst [Dec (a, Type ())]
+inferDecsRS = foldlM aux []
   where
-    aux :: (Subst, [Dec (a, Type ())]) -> Dec a -> Result (Subst, [Dec (a, Type ())])
-    aux (s0, decs) (Dec a name args body) = do
-      let (s1, bodyType) = freshTypeUnk s0
-      let (s2, argWithTypes) = magic (s1 <> s0) args
-      let s2s1s0 = s2 <> s1 <> s0
-      let funcType = foldr (TArrow ()) bodyType (map getType argWithTypes)
-      let innerEnv = argToEnv argWithTypes
-      -- (s4, body') <- inferExpr (innerEnv <> env, s2s1s0) body
-      (body', s4) <- runRSF (inferExprRS body) (innerEnv <> env) s2s1s0
-      let bodyType' = getType body'
-      s5 <- unify bodyType' bodyType
-      let finalBody = applySubM s5 body'
-      let funcType' = applySub (s5 <> s4 <> s2s1s0) funcType
-      let prefinalType = applySub (s5 <> s4 <> s2s1s0) $ fromJust $ lookup name env
-      s6 <- unify prefinalType funcType'
-      let finalType = applySub s6 funcType'
-      let finalArgs = map (applySubM (s6 <> s5 <> s4 <> s2s1s0)) argWithTypes
-      let finalName = addType (TUnit ()) name
-      let finalSub = s6 <> s5 <> s4 <> s2s1s0
-      let finalDec = Dec (a, finalType) finalName finalArgs finalBody
-      return (finalSub, map (applySubM finalSub) (finalDec : decs))
+    aux :: [Dec (a, Type ())] -> Dec a -> RSF TypeEnv Subst [Dec (a, Type ())]
+    aux decs (Dec a name args body) =
+      do
+        bodyType <- freshTypeUnkRS
+        argWithTypes <- magic args
+        let funcType = foldr (TArrow ()) bodyType (map getType argWithTypes)
+        let innerEnv = argToEnv argWithTypes
+        body' <- withRSF (\r s -> (innerEnv <> r, s)) (inferExprRS body)
+        let bodyType' = getType body'
+        unifyRS bodyType' bodyType
+        prefinalType <- asks (fromJust . lookup name)
+        unifyRS prefinalType funcType
+        let finalName = addType (TUnit ()) name
+        let finalDec = Dec (a, funcType) finalName argWithTypes body'
+        currSub <- get
+        return $ map (applySubM currSub) (finalDec : decs)
     aux microencourage _ = return microencourage
+    magic :: [Argument a] -> RSF TypeEnv Subst [Argument (a, Type ())]
+    magic = foldrM aux []
+      where
+        aux :: Argument a -> [Argument (a, Type ())]  -> RSF TypeEnv Subst [Argument (a, Type ())]
+        aux arg args = do
+          t <- freshTypeUnkRS
+          let arg' = addType t arg
+          return (arg' : args)
+
+inferDecs :: Context -> [Dec a] -> Result [Dec (a, Type ())]
+inferDecs (env, sub) decs = evalRSF (inferDecsRS decs) env sub
 
 infer :: [Dec a] -> Result [Dec (a, Type ())]
 infer decs = do
     ctx <- envFrom mempty decs
-    (_, decs') <- inferDecs ctx decs
+    decs' <- inferDecs ctx decs
     return decs'
 -- TODO: not works
 -- infer decs = evalRSF (withDecsRS decs theworld) mempty mempty
