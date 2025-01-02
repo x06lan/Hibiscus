@@ -17,12 +17,9 @@ import Data.Tuple (curry)
 import Prelude hiding (lookup)
 
 import GHC.Stack (HasCallStack)
-import Debug.Trace hiding (trace)
+import Debug.Trace
 
 import Hibiscus.TypeInfer.RSF
-
-trace :: String -> a -> a
-trace _ = id
 
 type TypeEnv = Map.Map (Name ()) (Type ()) 
 newtype Subst = Subst (Map.Map MetaSymbol (Type ())) deriving (Show) -- responsible to maintain all metas
@@ -39,7 +36,7 @@ class Substable a where
   applySub :: Subst -> a -> a
 instance Substable (Type ()) where
   applySub (Subst sub) t@(TUnknown _ n) = 
-    trace ("applySub: " ++ show sub) $ 
+    -- trace ("applySub: " ++ show sub) $ 
     fromMaybe t (Map.lookup n sub)
   applySub s (TPar _ t) = applySub s t
   applySub s (TArrow _ ta tb) = TArrow () ta' tb'
@@ -59,7 +56,7 @@ unify t1 t2
       bindVar :: MetaSymbol -> Type () -> Result Subst
       bindVar v t = return $ Subst $ Map.fromList [(v,t)]
     in
-      trace ("unifying: " ++ show t1 ++ " ==? " ++ show t2) $ 
+      -- trace ("unifying: " ++ show t1 ++ " ==? " ++ show t2) $ 
       case (t1, t2) of
         (TUnknown _ v, t) -> bindVar v t
         (t, TUnknown _ v) -> bindVar v t
@@ -82,7 +79,7 @@ unifyRS t1_ t2_
       s <- get
       let t1 = applySub s t1_
       let t2 = applySub s t2_
-      traceM ("unifying: " ++ show t1 ++ " ==? " ++ show t2)
+      -- traceM ("unifying: " ++ show t1 ++ " ==? " ++ show t2)
       case (t1, t2) of
         (TUnknown _ v, t) -> bindVar v t
         (t, TUnknown _ v) -> bindVar v t
@@ -242,7 +239,8 @@ inferExprRS (EIfThenElse a condE thenE elseE) =
     return $ EIfThenElse (a, finalType) condE' thenE' elseE'
 -- TODO: fold
 inferExprRS expr =
-  do
+  do 
+    traceM $ "[WARN] Not implement Expr: " ++ show (void expr)
     t <- freshTypeUnkRS
     return $ addType t expr
 
