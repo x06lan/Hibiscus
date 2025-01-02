@@ -12,7 +12,7 @@ import Data.ByteString.Lazy.Char8 (pack)
 import Data.Foldable (foldlM, foldrM)
 import qualified Data.List as List
 import qualified Data.Map as Map
-import Data.Maybe (fromJust, fromMaybe)
+import Data.Maybe (fromJust, fromMaybe, listToMaybe)
 import Data.Tuple (curry)
 import Prelude hiding (lookup)
 
@@ -51,13 +51,14 @@ instance Substable (Type ()) where
 literalT :: String -> Type ()
 literalT = TVar () . Name () . pack
 
-bindVar :: MetaSymbol -> Type () -> Result Subst
-bindVar v t = return $ Subst $ Map.fromList [(v,t)]
-
 unify :: HasCallStack => Type () -> Type () -> Result Subst
 unify t1 t2
   | t1 == t2 = return mempty
-  | otherwise = 
+  | otherwise =
+    let
+      bindVar :: MetaSymbol -> Type () -> Result Subst
+      bindVar v t = return $ Subst $ Map.fromList [(v,t)]
+    in
       trace ("unifying: " ++ show t1 ++ " ==? " ++ show t2) $ 
       case (t1, t2) of
         (TUnknown _ v, t) -> bindVar v t
@@ -66,6 +67,26 @@ unify t1 t2
           s1 <- unify t1 t1'
           s2 <- unify (applySub s1 t2) (applySub s1 t2')
           return (s1 <> s2)
+        _ -> error $ "Cannot unify " ++ show t1 ++ " with " ++ show t2
+
+unifyRS :: Type () -> Type () -> RSF e Subst ()
+unifyRS t1 t2
+  | t1 == t2 = return ()
+  | otherwise =
+    let
+      bindVar :: MetaSymbol -> Type () -> RSF e Subst ()
+      bindVar v t = do
+        let newSub = Subst $ Map.fromList [(v, t)]
+        modify (\s -> newSub <> s)
+    in do
+      traceM ("unifying: " ++ show t1 ++ " ==? " ++ show t2)
+      case (t1, t2) of
+        (TUnknown _ v, t) -> bindVar v t
+        (t, TUnknown _ v) -> bindVar v t
+        (TArrow _ t1 t2, TArrow _ t1' t2') -> do
+          unifyRS t1 t1'
+          s1 <- get
+          unifyRS (applySub s1 t2) (applySub s1 t2')
         _ -> error $ "Cannot unify " ++ show t1 ++ " with " ++ show t2
 
 freshTypeUnk :: Subst -> (Subst, Type ())
@@ -79,6 +100,17 @@ freshTypeUnk' :: Subst -> (Subst, Type ())
 freshTypeUnk' s1 = (s2 <> s1, t')
     where
         (s2, t') = freshTypeUnk s1
+
+freshTypeUnkRS :: RSF TypeEnv Subst (Type ())
+freshTypeUnkRS =
+  do
+    lastnum <- gets (\(Subst s) -> maximum $ [0] ++ Map.keys s)
+    let t' = 1 + lastnum
+    let newSym = 1 + lastnum
+    let t' = TUnknown () newSym
+    let nm = Subst $ Map.fromList [(newSym, t')]
+    modify (\s -> nm <> s)
+    return t'
 
 (<><>) :: (Semigroup a , Semigroup b) => (a , b) -> (a , b) -> (a , b)
 (a, b) <><> (a', b') = (a <> a', b <> b')
@@ -149,6 +181,23 @@ inferExprRS e@(EVar _ x) =
     case lookup x env of
       Nothing -> fail $ "Unbound variable: " ++ show x
       Just t -> return $ addType t e
+inferExprRS (EList a exprs) =
+    let
+      -- aux :: Expr a -> (Subst, [Expr (a, Type ())]) -> Result (Subst, [Expr (a, Type ())])
+      aux :: Expr a -> [Expr (a, Type ())] -> RSF TypeEnv Subst [Expr (a, Type ())]
+      aux expr acc = do
+        expr' <- inferExprRS expr
+        s20 <- get
+        -- check if type same as previous
+        case acc of
+          (x:_) -> unifyRS (getType x) (getType expr')
+          []    -> modify id
+        finalSub <- get
+        return $ fmap (applySubM finalSub) (expr' : acc)
+    in do
+      exprs' <- foldrM aux [] exprs
+      t <- maybe freshTypeUnkRS (return . getType) $ listToMaybe exprs'
+      return $ EList (a, TList () t) exprs'
 inferExprRS e =
   do
     s <- get
@@ -244,7 +293,8 @@ inferDecs (env, sub) = foldlM aux (sub, [])
       let s2s1s0 = s2 <> s1 <> s0
       let funcType = foldr (TArrow ()) bodyType (map getType argWithTypes)
       let innerEnv = argToEnv argWithTypes
-      (s4, body') <- inferExpr (innerEnv <> env, s2s1s0) body
+      -- (s4, body') <- inferExpr (innerEnv <> env, s2s1s0) body
+      (body', s4) <- runRSF (inferExprRS body) (innerEnv <> env) s2s1s0
       let bodyType' = getType body'
       s5 <- unify bodyType' bodyType
       let finalBody = applySubM s5 body'
