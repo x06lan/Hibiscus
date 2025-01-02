@@ -7,8 +7,9 @@ module Hibiscus.TypeInfer.RSF (
     runRSF,
     evalRSF,
     execRSF,
-    mapRSF,
+    mapRSF, 
     withRSF,
+    withRSF',
     -- * Reader operations
     reader,
     ask,
@@ -44,6 +45,7 @@ type Result = Either String
 instance MonadFail Result where
   fail = Left
 
+-- newtype RWST r w s m a = RWST { runRWST :: r -> s -> m (a, s, w) }
 -- MonadState + MonadReader + MonadFail
 type RSF r s = RWST r () s Result
 
@@ -67,3 +69,13 @@ mapRSF f = mapRWST $ fmap (xmap f)
 
 withRSF :: (r' -> s -> (r, s)) -> RSF r s a -> RSF r' s a
 withRSF = withRWST
+
+withRSF' :: (r -> s -> Result (r', s)) -> RSF r' s a -> RSF r s a
+withRSF' f rsf = RWST $ \r s -> 
+  case f r s of
+    Left err -> fail err
+    Right (r', s') ->
+      do
+        -- Run the original RSF with the transformed `r` and `s'`
+        (a, s'', _) <- runRWST rsf r' s'
+        return (a, s'', ())

@@ -112,31 +112,35 @@ freshTypeUnkRS =
     modify (\s -> nm <> s)
     return t'
 
-mcdonald :: Context -> Dec a -> Result Context
-mcdonald jojo@(env, sub) dec =
-  case dec of
-    (DecAnno _ n_ t_) ->
-      let
-        n = void n_
-        t = void t_
-      in
-      case lookup n env of
-        Just t' -> do
-          s1 <- unify t t'
-          return $ (Map.fromList [(n, t)], s1) <> jojo
-        Nothing -> return $ (Map.fromList [(n, t)], mempty) <> jojo
-    (Dec a n _ _) ->
-      case lookup n env of
-        Just t -> return jojo
-        Nothing -> let
-            (s,t) = freshTypeUnk sub
-            in return $ (Map.fromList [(void n, t)], s) <> jojo
+envFrom ::  Context -> [Dec a] -> Result Context
+envFrom = foldlM decToCxt
+  where
+    decToCxt :: (TypeEnv, Subst) -> Dec a -> Result (TypeEnv, Subst)
+    decToCxt (env, sub) dec = decToRS (void dec) env sub
 
-envFrom :: Context -> [Dec a] -> Result Context
-envFrom = foldlM mcdonald
+withDecsRS :: [Dec a] -> RSF TypeEnv Subst b -> RSF TypeEnv Subst b
+withDecsRS decs = withRSF' (envFromRS' $ fmap void decs)
 
-envFrom' :: [Dec a] -> Result Context
-envFrom' = foldlM mcdonald (mempty, mempty)
+envFromRS' :: [Dec ()] -> TypeEnv -> Subst -> Result (TypeEnv, Subst)
+envFromRS' decs r s = foldlM (\(r',s') d -> decToRS d r s') (r, s) decs
+
+decToRS :: Dec () -> TypeEnv -> Subst -> Result (TypeEnv, Subst)
+decToRS (DecAnno _ n t) env s =
+  case lookup n env of
+    Just t' ->
+      case execRSF (unifyRS t t') env s of
+        Right s' -> return (env, s')
+        Left x -> fail x
+    Nothing -> do
+      let env' = Map.fromList [(n, t)]
+      return (env' <> env, s)
+decToRS (Dec _ n _ _) env s =
+  case lookup n env of
+    Just t -> return (env, s)
+    Nothing -> do
+      let Right (t, s') = runRSF freshTypeUnkRS env s
+      let env' = Map.fromList [(n, t)]
+      return (env' <> env, s')
 
 addType :: (Functor f) => Type b -> f a -> f (a, Type b)
 addType t = fmap (\a -> (a, t))
@@ -179,22 +183,32 @@ inferExprRS e@(EVar _ x) =
       Nothing -> fail $ "Unbound variable: " ++ show x
       Just t -> return $ addType t e
 inferExprRS (EList a exprs) =
-    let
-      -- aux :: Expr a -> (Subst, [Expr (a, Type ())]) -> Result (Subst, [Expr (a, Type ())])
-      aux :: Expr a -> [Expr (a, Type ())] -> RSF TypeEnv Subst [Expr (a, Type ())]
-      aux expr acc = do
-        expr' <- inferExprRS expr
-        s20 <- get
-        -- check if type same as previous
-        case acc of
-          (x:_) -> unifyRS (getType x) (getType expr')
-          []    -> modify id
-        finalSub <- get
-        return $ fmap (applySubM finalSub) (expr' : acc)
-    in do
-      exprs' <- foldrM aux [] exprs
-      t <- maybe freshTypeUnkRS (return . getType) $ listToMaybe exprs'
-      return $ EList (a, TList () t) exprs'
+  let
+    -- aux :: Expr a -> (Subst, [Expr (a, Type ())]) -> Result (Subst, [Expr (a, Type ())])
+    aux :: Expr a -> [Expr (a, Type ())] -> RSF TypeEnv Subst [Expr (a, Type ())]
+    aux expr acc = do
+      expr' <- inferExprRS expr
+      s20 <- get
+      -- check if type same as previous
+      case acc of
+        (x:_) -> unifyRS (getType x) (getType expr')
+        []    -> modify id
+      finalSub <- get
+      return $ fmap (applySubM finalSub) (expr' : acc)
+  in do
+    exprs' <- foldrM aux [] exprs
+    t <- maybe freshTypeUnkRS (return . getType) $ listToMaybe exprs'
+    return $ EList (a, TList () t) exprs'
+inferExprRS (ELetIn a decs body) =
+  do
+    (decs', body') <- withDecsRS decs miniworld
+    return $ ELetIn (a, getType body') decs' body'
+  where
+    miniworld =
+      do
+        decs' <- inferDecsRS decs
+        body' <- inferExprRS body
+        return (decs', body')
 inferExprRS e =
   do
     s <- get
@@ -208,40 +222,10 @@ inferExprRS e =
 
 inferExpr :: Context -> Expr a -> Result (Subst, Expr (a, Type ()))
 inferExpr ctx@(env,sub) expr = case expr of
-  EInt _ _ -> return $ (mempty, addType (literalT "Int") expr)
-  EFloat _ _ -> return $ (mempty, addType (literalT "Float") expr)
-  EString _ _ -> return $ (mempty, addType (literalT "String") expr)
-  EBool _ _ -> return $ (mempty, addType (literalT "Bool") expr)
-  EUnit _ -> return $ (mempty, addType (literalT "Unit") expr)
-  EPar _ e' -> inferExpr ctx e'
-  EVar _ x -> case lookup x env of
-    Nothing -> fail $ "Unbound variable: " ++ show x
-    Just t -> return (mempty, addType t expr)
-  EList a exprs ->
-    let
-      aux :: Expr a -> (Subst, [Expr (a, Type ())]) -> Result (Subst, [Expr (a, Type ())])
-      aux expr (s0, acc) = do
-        (s2 , expr') <- inferExpr (env, s0) expr
-        s3 <- case acc of
-          (x:_) -> unify (getType x) (getType expr')
-          []    -> return mempty
-        let finalSub = s3 <> s2 <> s0
-        return (finalSub, fmap (applySubM finalSub) (expr' : acc))
-    in do
-      (sub, exprs') <- foldrM aux (mempty, []) exprs
-      let (s', t) = foldr (\x _ -> (sub, getType x)) (freshTypeUnk' sub) exprs'
-      return (s', EList (a, TList () t) exprs')
-  ELetIn a decs body ->
-    do
-      ctx'@(e0, s0) <- envFrom ctx decs
-      (s1, decs') <- inferDecs ctx' decs
-      let ctx'' = (fmap (applySub s1) e0, s1 <> s0)
-      (s2, body') <- inferExpr ctx'' body
-      return (s2 <> s1, ELetIn (a, getType body') decs' body')
   EApp a f x -> do
       -- tf = tx -> tv
-      (s1, f') <- inferExpr ctx              f
-      (s2, x') <- inferExpr (env, s1 <> sub) x
+      (f', s1) <- runRSF (inferExprRS f) env sub
+      (x', s2) <- runRSF (inferExprRS x) env (s1 <> sub)
       let tf = getType f'
       let tx = getType x'
       let (s3, tv) = freshTypeUnk (s2 <> s1 <> sub)
@@ -252,8 +236,8 @@ inferExpr ctx@(env,sub) expr = case expr of
       return (s43210, finalEApp)
   EBinOp a e1 biop e2 ->
     do
-      (s1, e1') <- inferExpr ctx              e1
-      (s2, e2') <- inferExpr (env, s1 <> sub) e2
+      (e1', s1) <- runRSF (inferExprRS e1) env sub
+      (e2', s2) <- runRSF (inferExprRS e2) env (s1 <> sub)
       let t1 = getType e1'
       let t2 = getType e2'
       s3 <- unify t1 t2
@@ -261,10 +245,10 @@ inferExpr ctx@(env,sub) expr = case expr of
       let finalType = if isBooleanOp biop then literalT "Bool" else eType
       let finalSub = s3 <> s2 <> s1
       return (finalSub, EBinOp (a,finalType) e1' (addType finalType biop) e2')
-  EIfThenElse a condition thenE elseE -> do
-    (s1, cond')  <- inferExpr ctx                    condition
-    (s2, elseE') <- inferExpr (env, s1 <> sub)       elseE
-    (s3, thenE') <- inferExpr (env, s1 <> s2 <> sub) thenE
+  EIfThenElse a condE thenE elseE -> do
+    (cond', s1)  <- runRSF (inferExprRS condE) env sub
+    (elseE', s2) <- runRSF (inferExprRS elseE) env (s1 <> sub)
+    (thenE', s3) <- runRSF (inferExprRS thenE) env (s1 <> s2 <> sub)
     let s321 = s3 <> s2 <> s1
     s4 <- unify (applySub s321 $ getType cond') (literalT "Bool")
     s5 <- unify (applySub (s4 <> s321) $ getType elseE') (applySub (s4 <> s321) $ getType thenE')
@@ -279,6 +263,18 @@ inferExpr ctx@(env,sub) expr = case expr of
     where
       (s1, t) = freshTypeUnk sub
 
+-- TODO: Unfinished monad-ise
+inferDecsRS :: [Dec a] -> RSF TypeEnv Subst [Dec (a, Type ())]
+inferDecsRS decs =
+  do
+    sub <- get
+    env <- ask
+    case inferDecs (env, sub) decs of
+      Right (s, x) ->
+        do
+          modify (s <>)
+          return x
+      Left x -> fail x
 
 inferDecs :: Context -> [Dec a] -> Result (Subst, [Dec (a, Type ())])
 inferDecs (env, sub) = foldlM aux (sub, [])
@@ -308,6 +304,12 @@ inferDecs (env, sub) = foldlM aux (sub, [])
 
 infer :: [Dec a] -> Result [Dec (a, Type ())]
 infer decs = do
-    ctx <- envFrom' decs
+    ctx <- envFrom mempty decs
     (_, decs') <- inferDecs ctx decs
     return decs'
+-- TODO: not works
+-- infer decs = evalRSF (withDecsRS decs theworld) mempty mempty
+--   where
+--     theworld =
+--       do
+--         inferDecsRS decs
