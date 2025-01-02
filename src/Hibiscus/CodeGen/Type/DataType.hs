@@ -79,7 +79,7 @@ typeConvert t = case t of
   Ast.TArrow _ t1 t2 -> typeFunctionConvert t
   Ast.TApp _ t -> error ("Not implemented App" ++ show t)
   Ast.TUnit _ -> DTypeVoid
-  _ -> error ("Not implemented?" ++ show t)
+  _ -> error ("Not implemented? " ++ show t)
 
 typeStringConvert :: String -> Maybe DataType
 typeStringConvert t = case t of

@@ -20,13 +20,14 @@ library:
     - Hibiscus.CodeGen.GenExpr
     - Hibiscus.CodeGen
     - Hibiscus.Asm
-    - Hibiscus.Type4plus
+    - Hibiscus.TypeInfer
   dependencies:
     - array
     - base
     - bytestring
     - containers
     - mtl
+    - transformers
   build-tools:
     - alex
     - happy
@@ -47,7 +48,7 @@ tests:
       - src
     other-modules:
       - Hibiscus.Ast
-      - Hibiscus.Type4plus
+      - Hibiscus.TypeInfer
     dependencies:
       - base
       - bytestring

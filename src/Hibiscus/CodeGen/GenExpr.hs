@@ -23,7 +23,7 @@ import Hibiscus.CodeGen.Type.DataType (DataType)
 import qualified Hibiscus.CodeGen.Type.DataType as DT
 import Hibiscus.CodeGen.Util
 import qualified Hibiscus.Lexer as L
-import qualified Hibiscus.Type4plus as TI
+import qualified Hibiscus.TypeInfer as TI
 import Hibiscus.Util (foldMaplM, foldMaprM)
 
 
