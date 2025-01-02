@@ -2,7 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 
-module Hibiscus.Type4plus where
+module Hibiscus.TypeInfer.Type4plus where
 
 import Hibiscus.Ast
 

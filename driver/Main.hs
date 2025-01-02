@@ -7,7 +7,7 @@ import Hibiscus.CodeGen.Type (defaultConfig)
 import Hibiscus.CodeGen (generate, instructionsToString)
 import Hibiscus.Lexer (runAlex)
 import Hibiscus.Parser (parseHibiscus)
-import Hibiscus.Type4plus (infer)
+import Hibiscus.TypeInfer (infer)
 import System.Environment (getArgs)
 
 main :: IO ()

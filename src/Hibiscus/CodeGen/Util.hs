@@ -19,7 +19,7 @@ import qualified Hibiscus.Ast as Ast
 import Hibiscus.CodeGen.Type
 import Hibiscus.CodeGen.Type.DataType (DataType)
 import qualified Hibiscus.CodeGen.Type.DataType as DT
-import qualified Hibiscus.Type4plus as TI
+import qualified Hibiscus.TypeInfer as TI
 import Hibiscus.Util (foldMaplM, foldMaprM)
 
 findResult' :: ResultType -> ResultMap -> Maybe ExprReturn

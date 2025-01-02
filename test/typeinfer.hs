@@ -2,7 +2,7 @@ module Main where
 
 import System.Exit
 
-import Hibiscus.Type4plus (infer)
+import Hibiscus.TypeInfer (infer)
 import Hibiscus.Ast
 
 -- testAst from:

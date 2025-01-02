@@ -24,9 +24,10 @@ library
       Hibiscus.CodeGen.GenExpr
       Hibiscus.CodeGen
       Hibiscus.Asm
-      Hibiscus.Type4plus
+      Hibiscus.TypeInfer
   other-modules:
       Hibiscus.TypeInfer.RSF
+      Hibiscus.TypeInfer.Type4plus
       Hibiscus.Util
       Paths_hibiscus
   hs-source-dirs:
@@ -64,7 +65,7 @@ test-suite type-infer
   main-is: typeinfer.hs
   other-modules:
       Hibiscus.Ast
-      Hibiscus.Type4plus
+      Hibiscus.TypeInfer
   hs-source-dirs:
       test
       src
