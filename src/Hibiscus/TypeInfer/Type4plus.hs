@@ -112,9 +112,6 @@ freshTypeUnkRS =
     modify (\s -> nm <> s)
     return t'
 
-(<><>) :: (Semigroup a , Semigroup b) => (a , b) -> (a , b) -> (a , b)
-(a, b) <><> (a', b') = (a <> a', b <> b')
-
 mcdonald :: Context -> Dec a -> Result Context
 mcdonald jojo@(env, sub) dec =
   case dec of
@@ -126,14 +123,14 @@ mcdonald jojo@(env, sub) dec =
       case lookup n env of
         Just t' -> do
           s1 <- unify t t'
-          return $ (Map.fromList [(n, t)], s1) <><> jojo
-        Nothing -> return $ (Map.fromList [(n, t)], mempty) <><> jojo
+          return $ (Map.fromList [(n, t)], s1) <> jojo
+        Nothing -> return $ (Map.fromList [(n, t)], mempty) <> jojo
     (Dec a n _ _) ->
       case lookup n env of
         Just t -> return jojo
         Nothing -> let
             (s,t) = freshTypeUnk sub
-            in return $ (Map.fromList [(void n, t)], s) <><> jojo
+            in return $ (Map.fromList [(void n, t)], s) <> jojo
 
 envFrom :: Context -> [Dec a] -> Result Context
 envFrom = foldlM mcdonald
