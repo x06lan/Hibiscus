@@ -79,7 +79,8 @@ sepBy_rev(p, sep)
   | sepBy_rev(p, sep) sep p { $3 : $1 }
 
 sepBy(p, sep)
-  : sepBy_rev(p, sep){ reverse $1 }
+  :                       { [] }
+  | p sepBy_rev(p, sep)   { $1 : reverse $2 }
 
 name :: { Name L.Range }
   : identifier { unTok $1 (\range (L.Identifier name) -> Name range name) }
