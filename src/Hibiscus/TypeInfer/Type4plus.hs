@@ -93,7 +93,7 @@ withDecsRS :: [Dec a] -> RSF TypeEnv Subst b -> RSF TypeEnv Subst b
 withDecsRS decs = withRSF' (envFromRS' $ fmap void decs)
 
 envFromRS' :: [Dec ()] -> TypeEnv -> Subst -> Result (TypeEnv, Subst)
-envFromRS' decs r s = foldlM (\(r',s') d -> decToRS d r s') (r, s) decs
+envFromRS' decs r s = foldlM (\(r',s') d -> decToRS d r' s') (r, s) decs
 
 decToRS :: Dec () -> TypeEnv -> Subst -> Result (TypeEnv, Subst)
 decToRS (DecAnno _ n t) env s =
@@ -235,13 +235,4 @@ inferDecs :: (TypeEnv, Subst) -> [Dec a] -> Result [Dec (a, Type ())]
 inferDecs (env, sub) decs = evalRSF (inferDecsRS decs) env sub
 
 infer :: [Dec a] -> Result [Dec (a, Type ())]
-infer decs = do
-    ctx <- envFrom mempty decs
-    decs' <- inferDecs ctx decs
-    return decs'
--- TODO: not works
--- infer decs = evalRSF (withDecsRS decs theworld) mempty mempty
---   where
---     theworld =
---       do
---         inferDecsRS decs
+infer decs = evalRSF (withDecsRS decs (inferDecsRS decs)) mempty memptys
