@@ -5,8 +5,8 @@ import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.Functor (void)
 import Hibiscus.CodeGen.Type (defaultConfig)
 import Hibiscus.CodeGen (generate, instructionsToString)
-import Hibiscus.Lexer (runAlex)
-import Hibiscus.Parser (parseHibiscus)
+import Hibiscus.Parsing.Lexer (runAlex)
+import Hibiscus.Parsing.Parser (parseHibiscus)
 import Hibiscus.TypeInfer (infer)
 import System.Environment (getArgs)
 

@@ -12,8 +12,8 @@ library:
   source-dirs: src
   exposed-modules:
     - Hibiscus.Ast
-    - Hibiscus.Lexer
-    - Hibiscus.Parser
+    - Hibiscus.Parsing.Lexer
+    - Hibiscus.Parsing.Parser
     - Hibiscus.CodeGen.Type.DataType
     - Hibiscus.CodeGen.Type
     - Hibiscus.CodeGen.Util
