@@ -83,20 +83,14 @@ freshTypeUnkRS =
     modify (\s -> nm <> s)
     return t'
 
-envFrom ::  (TypeEnv, Subst) -> [Dec a] -> Result (TypeEnv, Subst)
-envFrom = foldlM decToCxt
-  where
-    decToCxt :: (TypeEnv, Subst) -> Dec a -> Result (TypeEnv, Subst)
-    decToCxt (env, sub) dec = decToRS (void dec) env sub
-
 withDecsRS :: [Dec a] -> RSF TypeEnv Subst b -> RSF TypeEnv Subst b
 withDecsRS decs = withRSF' (envFromRS' $ fmap void decs)
 
 envFromRS' :: [Dec ()] -> TypeEnv -> Subst -> Result (TypeEnv, Subst)
-envFromRS' decs r s = foldlM (\(r',s') d -> decToRS d r' s') (r, s) decs
+envFromRS' decs r s = foldrM decToRS (r, s) decs
 
-decToRS :: Dec () -> TypeEnv -> Subst -> Result (TypeEnv, Subst)
-decToRS (DecAnno _ n t) env s =
+decToRS :: Dec () -> (TypeEnv, Subst) -> Result (TypeEnv, Subst)
+decToRS (DecAnno _ n t) (env, s) =
   case lookup n env of
     Just t' ->
       case execRSF (unifyRS t t') env s of
@@ -105,7 +99,7 @@ decToRS (DecAnno _ n t) env s =
     Nothing -> do
       let env' = Map.fromList [(n, t)]
       return (env' <> env, s)
-decToRS (Dec _ n _ _) env s =
+decToRS (Dec _ n _ _) (env, s) =
   case lookup n env of
     Just t -> return (env, s)
     Nothing -> do
@@ -235,4 +229,4 @@ inferDecs :: (TypeEnv, Subst) -> [Dec a] -> Result [Dec (a, Type ())]
 inferDecs (env, sub) decs = evalRSF (inferDecsRS decs) env sub
 
 infer :: [Dec a] -> Result [Dec (a, Type ())]
-infer decs = evalRSF (withDecsRS decs (inferDecsRS decs)) mempty memptys
+infer decs = evalRSF (withDecsRS decs (inferDecsRS decs)) mempty mempty
