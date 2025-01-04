@@ -12,12 +12,13 @@ import Data.Monoid (First (..), getFirst)
 import Data.STRef (newSTRef)
 import qualified Hibiscus.Asm as Asm
 import qualified Hibiscus.Ast as Ast
+import Hibiscus.CodeGen.Constants (global)
 import Hibiscus.CodeGen.GenExpr (
   generateExprSt,
   generateTypeSt,
   insertResultSt,
  )
-import Hibiscus.CodeGen.Type
+import Hibiscus.CodeGen.Types
 import Hibiscus.CodeGen.Type.DataType (DataType)
 import qualified Hibiscus.CodeGen.Type.DataType as DT
 import Hibiscus.CodeGen.Util (findDec, findResult, searchTypeId)

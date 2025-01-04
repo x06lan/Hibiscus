@@ -17,6 +17,7 @@ module Hibiscus.Asm
     MemoryModel (..),
     ExecutionModel (..),
     ExecutionMode (..),
+    ResultId,
   )
 where
 

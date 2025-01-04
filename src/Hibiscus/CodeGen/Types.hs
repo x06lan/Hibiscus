@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-missing-signatures #-}
 
-module Hibiscus.CodeGen.Type where
+module Hibiscus.CodeGen.Types where
 
 -- import qualified Data.Set as Set
 
@@ -23,17 +23,13 @@ import qualified Hibiscus.Parsing.Lexer as L
 import qualified Hibiscus.TypeInfer as TI
 import Hibiscus.Util (foldMaplM, foldMaprM, replace)
 
--- IDK why this is not imported from Asm
-type ResultId = Asm.OpId
-
--- import Data.IntMap (fromList, foldlWithKey)
 
 ----- Instruction constructor helpers BEGIN -----
 
 noReturnInstruction :: Asm.Ops -> Asm.Instruction
 noReturnInstruction op = Asm.Instruction (Nothing, op)
 
-returnedInstruction :: ResultId -> Asm.Ops -> Asm.Instruction
+returnedInstruction :: Asm.ResultId -> Asm.Ops -> Asm.Instruction
 returnedInstruction id op = Asm.Instruction (Just id, op)
 
 commentInstruction :: String -> Asm.Instruction
@@ -131,7 +127,6 @@ data HeaderFields = HeaderFields
   }
   deriving (Show)
 
-global = ("", DT.DTypeVoid)
 emptyHeaderFields =
   HeaderFields
     { capabilityInst = Nothing
@@ -173,19 +168,6 @@ data Instructions = Instructions
   }
   deriving (Show)
 
-dtypeof :: Asm.Literal -> DataType
-dtypeof (Asm.LBool _) = DT.bool
-dtypeof (Asm.LUint _) = DT.uint32
-dtypeof (Asm.LInt _) = DT.int32
-dtypeof (Asm.LFloat _) = DT.float32
-
-idNameOf :: Asm.Literal -> String
-idNameOf l = case l of
-  Asm.LBool b -> "bool_" ++ show b
-  Asm.LUint u -> "uint_" ++ show u
-  Asm.LInt i -> "int_" ++ show i
-  Asm.LFloat f -> "float_" ++ replace '.' '_' (show f)
-
 -- FIXME: AFAIK, Instructions don’t actually form a Monoid.
 --        However, since most folds are associative, I created this instance
 --        to leverage Monoid for folding, making it less mentally taxing to work with.
@@ -215,20 +197,6 @@ instance Monoid Instructions where
       }
 
 -- FIXME: fucked up semantics
-
-defaultConfig :: Config
-defaultConfig =
-  Config
-    { capability = Asm.Shader
-    , addressModel = Asm.Logical
-    , memoryModel = Asm.GLSL450
-    , source = (Asm.GLSL, 450)
-    , shaderType = Asm.Fragment
-    , executionMode = Asm.OriginUpperLeft
-    , extension = "GLSL.std.450"
-    , entryPoint = "main"
-    -- uniforms = [("uv", vector2, Input, 0), ("outColor", vector4, Output, 0)]
-    }
 
 emptyInstructions :: Instructions
 emptyInstructions =

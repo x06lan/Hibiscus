@@ -16,11 +16,11 @@ import Data.STRef (newSTRef)
 import Debug.Trace (trace)
 import qualified Hibiscus.Asm as Asm
 import qualified Hibiscus.Ast as Ast
-import Hibiscus.CodeGen.Type
+import Hibiscus.CodeGen.Types
 import Hibiscus.CodeGen.Type.DataType (DataType)
 import qualified Hibiscus.CodeGen.Type.DataType as DT
 import qualified Hibiscus.TypeInfer as TI
-import Hibiscus.Util (foldMaplM, foldMaprM)
+import Hibiscus.Util (foldMaplM, foldMaprM, replace)
 
 findResult' :: ResultType -> ResultMap -> Maybe ExprReturn
 findResult' (ResultVariable (envs, name, varType)) viIdMap =
@@ -89,3 +89,16 @@ findDec' name maybeFS = find' aux
 -- search dec by name and function signature
 findDec :: [Dec] -> String -> Maybe FunctionSignature -> Maybe Dec
 findDec decs n mfs = findDec' n mfs decs
+
+dtypeof :: Asm.Literal -> DataType
+dtypeof (Asm.LBool _) = DT.bool
+dtypeof (Asm.LUint _) = DT.uint32
+dtypeof (Asm.LInt _) = DT.int32
+dtypeof (Asm.LFloat _) = DT.float32
+
+idNameOf :: Asm.Literal -> String
+idNameOf l = case l of
+  Asm.LBool b -> "bool_" ++ show b
+  Asm.LUint u -> "uint_" ++ show u
+  Asm.LInt i -> "int_" ++ show i
+  Asm.LFloat f -> "float_" ++ replace '.' '_' (show f)

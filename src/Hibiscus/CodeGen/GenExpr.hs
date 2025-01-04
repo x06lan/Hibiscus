@@ -18,7 +18,8 @@ import Data.STRef (newSTRef)
 import Debug.Trace (traceM)
 import qualified Hibiscus.Asm as Asm
 import qualified Hibiscus.Ast as Ast
-import Hibiscus.CodeGen.Type
+import Hibiscus.CodeGen.Constants (global)
+import Hibiscus.CodeGen.Types
 import Hibiscus.CodeGen.Type.DataType (DataType)
 import qualified Hibiscus.CodeGen.Type.DataType as DT
 import Hibiscus.CodeGen.Util

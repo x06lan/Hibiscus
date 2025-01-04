@@ -14,10 +14,9 @@ library:
     - Hibiscus.Ast
     - Hibiscus.Parsing.Lexer
     - Hibiscus.Parsing.Parser
+    - Hibiscus.CodeGen.Constants
     - Hibiscus.CodeGen.Type.DataType
-    - Hibiscus.CodeGen.Type
-    - Hibiscus.CodeGen.Util
-    - Hibiscus.CodeGen.GenExpr
+    - Hibiscus.CodeGen.Types
     - Hibiscus.CodeGen
     - Hibiscus.Asm
     - Hibiscus.TypeInfer
