@@ -4,7 +4,7 @@
 
 module Hibiscus.TypeInfer.Type4plus where
 
-import Hibiscus.Util (fmap2nd)
+import Hibiscus.Util (fmap2nd, foldMapM)
 import Hibiscus.Ast
 
 import Data.Functor (void)
@@ -229,11 +229,11 @@ inferDecsRS = foldlM aux []
         currSub <- get
         return $ map (applySubM currSub) (finalDec : decs)
     aux microencourage _ = return microencourage
-    magic :: Argument a -> RSF TypeEnv Subst (Argument (a, Type ()))
+    magic :: Argument a -> RSF TypeEnv Subst ([Argument (a, Type ())])
     magic arg =
       do
         t <- freshTypeUnkRS
-        return $ addType t arg
+        return $ [addType t arg]
 
 inferDecs :: (TypeEnv, Subst) -> [Dec a] -> Result [Dec (a, Type ())]
 inferDecs (env, sub) decs = evalRSF (inferDecsRS decs) env sub
