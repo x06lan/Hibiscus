@@ -172,6 +172,10 @@ inferExprRS (EApp a f x) =
     tv <- freshTypeUnkRS
     unifyRS tf (TArrow () tx tv)
     return $ EApp (a, tv) f' x'
+inferExprRS (ENeg a e) =
+  do
+    e' <- inferExprRS e
+    return $ ENeg (a, getType e') e'
 inferExprRS e@(EOp _ op) =
   do
     xt <- freshTypeUnkRS

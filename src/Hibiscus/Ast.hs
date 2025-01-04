@@ -21,10 +21,11 @@ type MetaSymbol = Int
 data Type a
   = TVar a (Name a)
   | TPar a (Type a)
-  | TApp a (Type a)
+  | TApp a (Type a) -- no used
   | TUnit a
   | TList a (Type a)
   | TArrow a (Type a) (Type a)
+  -- below only for inference
   | TUnknown a MetaSymbol
   deriving (Functor, Foldable)
 
