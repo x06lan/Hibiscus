@@ -24,7 +24,7 @@ main = do
       print parseResult
       putStrLn "\n----- Type Infer Result ---------------"
       case infer parseResult of
-        Left err -> print err
+        Left err -> putStrLn $ "Infer Error: " ++ err
         Right dec -> do
           putStrLn $ show dec
           putStrLn "\n----- Code Generate Result ---------------"

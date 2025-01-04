@@ -30,6 +30,10 @@ data Type a
   | TArray a Int (Type a)
   deriving (Functor, Foldable)
 
+isUnknown :: Type a -> Bool
+isUnknown (TUnknown _ _) = True
+isUnknown _ = False
+
 instance Eq (Type a) where
   (TVar _ n1) == (TVar _ n2) = n1 == n2
   (TPar _ t1) == t2 = t1 == t2

@@ -103,7 +103,10 @@ decToRS (DecAnno _ n t) (env, s) =
       return (env' <> env, s)
 decToRS (Dec _ n _ _) (env, s) =
   case lookup n env of
-    Just t -> return (env, s)
+    Just t ->
+      if isUnknown t
+        then fail $ "duplicated defined " ++ show n
+        else return (env, s)
     Nothing -> do
       let Right (t, s') = runRSF freshTypeUnkRS env s
       let env' = Map.fromList [(n, t)]
