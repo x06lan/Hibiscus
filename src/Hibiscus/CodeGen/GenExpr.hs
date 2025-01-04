@@ -19,6 +19,7 @@ import Debug.Trace (traceM)
 import qualified Hibiscus.Asm as Asm
 import qualified Hibiscus.Ast as Ast
 import Hibiscus.CodeGen.Constants (global)
+import Hibiscus.CodeGen.Type.Bulitin
 import Hibiscus.CodeGen.Types
 import Hibiscus.CodeGen.Type.DataType (DataType)
 import qualified Hibiscus.CodeGen.Type.DataType as DT
@@ -225,7 +226,7 @@ generateDecSt :: Dec -> State LanxSt (Instructions, VariableInst, StackInst)
 generateDecSt (Ast.DecAnno _ name t) = return mempty
 generateDecSt (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
   do
-    let varType = DT.typeConvert t
+    let varType = typeConvert t
     (typeId, inst1) <- generateTypeSt varType
     (result, inst2, varInst, stackInst) <- generateExprSt e
     -- env_state2 <- gets env
@@ -259,7 +260,7 @@ generateFunctionSt inst (Ast.DecAnno _ name t) = return (Asm.IdName "", inst)
 generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
   do
     env_state0 <- gets env
-    let functionType = DT.typeConvert t
+    let functionType = typeConvert t
     let DT.DTypeFunction returnType argsType = functionType
 
     (typeId, inst1) <- generateTypeSt functionType
@@ -304,43 +305,19 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
 
 -- used by generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name))
 handleVarFunctionSt :: String -> FunctionSignature -> State LanxSt VeryImportantTuple
-handleVarFunctionSt name (returnType, args) =
-  let
-    magic x =
-      if length args == 1 && returnType == DT.float32
-        then x
-        else error (name ++ ":" ++ show args)
-   in
-    do
-      state <- get
-      let result = findResult state (ResultVariableValue (env state, name, DT.DTypeFunction returnType args))
-      -- doTrace (show (name,env state , DTypeFunction returnType args, result))
-      case result of
-        Just x -> return (x, emptyInstructions, [], [])
-        Nothing ->
-          case DT.typeStringConvert name of
-            Just x
-              | x == returnType -> return (ExprApplication (TypeConstructor returnType) (returnType, args) [], emptyInstructions, [], [])
-            Nothing
-              | name == "foldl" -> return (ExprApplication FunctionFoldl (returnType, args) [], emptyInstructions, [], [])
-              | name == "map" -> return (ExprApplication FunctionMap (returnType, args) [], emptyInstructions, [], [])
-              | name == "extract_0" -> magic $ return (ExprApplication (TypeExtractor returnType [0]) (returnType, args) [], mempty, [], [])
-              | name == "extract_1" -> magic $ return (ExprApplication (TypeExtractor returnType [1]) (returnType, args) [], mempty, [], [])
-              | name == "extract_2" -> magic $ return (ExprApplication (TypeExtractor returnType [2]) (returnType, args) [], mempty, [], [])
-              | name == "extract_3" -> magic $ return (ExprApplication (TypeExtractor returnType [3]) (returnType, args) [], mempty, [], [])
-              | True ->
-                  do
-                    state1 <- get
-                    let dec = fromMaybe (error (name ++ show args)) (findDec (decs state1) name Nothing)
-                    (id, inst1) <- generateFunctionSt emptyInstructions dec
-                    state2 <- get
+handleVarFunctionSt name fs@(returnType, args) =
+  case getBulitinFunction name fs of
+    Just er -> return (er, mempty, [], [])
+    Nothing ->
+      do
+        state1 <- get
+        let dec = fromMaybe (error (name ++ show args)) (findDec (decs state1) name Nothing)
+        (id, inst1) <- generateFunctionSt emptyInstructions dec
+        -- state2 <- get
 
-                    -- doTrace ("after "++ show (env state2)++show (findResult state2 (ResultVariableValue (env state2, name, DTypeFunction returnType args))))
-                    -- doTrace (show (idMap state2))
-                    return (ExprApplication (CustomFunction id name) (returnType, args) [], inst1, [], [])
-            -- error (show id ++ show (functionFields inst1))
-            -- case findResult state (ResultFunction name ) of {}
-            _ -> error "Not implemented function"
+        -- doTrace ("after "++ show (env state2)++show (findResult state2 (ResultVariableValue (env state2, name, DTypeFunction returnType args))))
+        -- doTrace (show (idMap state2))
+        return (ExprApplication (CustomFunction id name) (returnType, args) [], inst1, [], [])
 
 -- used by generateExprSt literals
 generateConstSt :: Asm.Literal -> State LanxSt VeryImportantTuple
@@ -437,7 +414,7 @@ generateExprSt (Ast.EList _ es) =
 generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name)) =
   do
     state <- get
-    let dType = DT.typeConvert t1
+    let dType = typeConvert t1
     let maybeResult = findResult state (ResultVariableValue (env state, BS.unpack name, dType))
     case maybeResult of
       Just x -> return (x, mempty, [], [])

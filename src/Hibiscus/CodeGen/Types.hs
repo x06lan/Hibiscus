@@ -46,9 +46,6 @@ type Dec = Ast.Dec (L.Range, Type)
 type Expr = Ast.Expr (L.Range, Type)
 type Argument = Ast.Argument (L.Range, Type)
 
-getNameAndDType :: Argument -> (String, DataType)
-getNameAndDType (Ast.Argument (_, t) (Ast.Name _ name)) = (BS.unpack name, DT.typeConvert t)
-
 type FunctionSignature = (DataType, [DataType]) -- return type, arguments
 
 type Env = [(String, DataType)] -- function name, function type

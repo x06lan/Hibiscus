@@ -21,7 +21,7 @@ import Hibiscus.CodeGen.GenExpr (
 import Hibiscus.CodeGen.Types
 import Hibiscus.CodeGen.Type.DataType (DataType)
 import qualified Hibiscus.CodeGen.Type.DataType as DT
-import Hibiscus.CodeGen.Util (findDec, findResult, searchTypeId)
+import Hibiscus.CodeGen.Util (findDec, findResult, searchTypeId, getNameAndDType)
 import qualified Hibiscus.TypeInfer as TI
 import Hibiscus.Util (foldMaplM, foldMaprM)
 

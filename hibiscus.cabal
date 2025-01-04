@@ -26,6 +26,7 @@ library
       Hibiscus.TypeInfer
   other-modules:
       Hibiscus.CodeGen.GenExpr
+      Hibiscus.CodeGen.Type.Bulitin
       Hibiscus.CodeGen.Util
       Hibiscus.TypeInfer.RSF
       Hibiscus.TypeInfer.Type4plus
