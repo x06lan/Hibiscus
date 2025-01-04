@@ -51,29 +51,28 @@ literalT :: String -> Type ()
 literalT = TVar () . Name () . pack
 
 unifyRS :: Type () -> Type () -> RSF e Subst ()
-unifyRS t1_ t2_
-  | t1_ == t2_ = return ()
-  | otherwise =
-    let
-      bindVar :: MetaSymbol -> Type () -> RSF e Subst ()
-      bindVar v t = do
-        let newSub = Subst $ Map.fromList [(v, t)]
-        modify (\s -> newSub <> s)
-    in do
-      s <- get
-      let t1 = applySub s t1_
-      let t2 = applySub s t2_
-      -- traceM ("unifying: " ++ show t1 ++ " ==? " ++ show t2)
-      case (t1, t2) of
-        (TPar _ t1, _) -> unifyRS t1 t2
-        (_, TPar _ t2) -> unifyRS t1 t2
-        (TList _ t1, TList _ t2) -> unifyRS t1 t2
-        (TUnknown _ v, t) -> bindVar v t
-        (t, TUnknown _ v) -> bindVar v t
-        (TArrow _ t1 t2, TArrow _ t1' t2') -> do
-          unifyRS t1 t1'
-          unifyRS t2 t2'
-        _ -> error $ "Cannot unify " ++ show t1 ++ " with " ++ show t2
+unifyRS t1_ t2_ =
+  let
+    bindVar :: MetaSymbol -> Type () -> RSF e Subst ()
+    bindVar v t = do
+      let newSub = Subst $ Map.fromList [(v, t)]
+      modify (\s -> newSub <> s)
+  in do
+    s <- get
+    let t1 = applySub s t1_
+    let t2 = applySub s t2_
+    -- traceM ("unifying: " ++ show t1 ++ " ==? " ++ show t2)
+    case (t1, t2) of
+      _ | t1 == t2 -> return ()
+      (TPar _ t1, _) -> unifyRS t1 t2
+      (_, TPar _ t2) -> unifyRS t1 t2
+      (TList _ t1, TList _ t2) -> unifyRS t1 t2
+      (TUnknown _ v, t) -> bindVar v t
+      (t, TUnknown _ v) -> bindVar v t
+      (TArrow _ t1 t2, TArrow _ t1' t2') -> do
+        unifyRS t1 t1'
+        unifyRS t2 t2'
+      _ -> error $ "Cannot unify " ++ show t1 ++ " with " ++ show t2
 
 freshTypeUnkRS :: RSF TypeEnv Subst (Type ())
 freshTypeUnkRS =
