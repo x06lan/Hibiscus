@@ -88,7 +88,7 @@ generateTypeSt_aux1 dType = do
     DT.DTypeStruct _ fields -> foldMaplM (fmap snd . generateTypeSt) fields
     DT.DTypeFunction returnType argsType -> foldMaplM (fmap snd . generateTypeSt . DT.DTypePointer Asm.Function) (returnType : argsType)
 
-generateTypeSt_aux2 :: DataType -> ResultId -> State LanxSt Instructions
+generateTypeSt_aux2 :: DataType -> Asm.ResultId -> State LanxSt Instructions
 generateTypeSt_aux2 dType typeId = state $ \state2 ->
   let
     searchTypeId' = searchTypeId state2

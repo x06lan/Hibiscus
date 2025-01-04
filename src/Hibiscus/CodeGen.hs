@@ -57,7 +57,7 @@ generateInitSt cfg decs =
             }
     return inst
 
-generateUniformsSt_aux1 :: (String, DataType, Asm.StorageClass, Int) -> State LanxSt (Instructions, [ResultId])
+generateUniformsSt_aux1 :: (String, DataType, Asm.StorageClass, Int) -> State LanxSt (Instructions, [Asm.ResultId])
 generateUniformsSt_aux1 (name, dType, storage, location) =
   do
     (typeId, inst1) <- generateTypeSt (DT.DTypePointer storage dType)
