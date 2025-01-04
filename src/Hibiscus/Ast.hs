@@ -25,7 +25,9 @@ data Type a
   | TUnit a
   | TList a (Type a)
   | TArrow a (Type a) (Type a)
-  | TUnknown a MetaSymbol
+  | -- for inference only
+    TUnknown a MetaSymbol
+  | TArray a Int (Type a)
   deriving (Functor, Foldable)
 
 instance Eq (Type a) where
