@@ -214,27 +214,26 @@ inferDecsRS = foldlM aux []
     aux decs (Dec a name args body) =
       do
         bodyType <- freshTypeUnkRS
-        argWithTypes <- magic args
+
+        argWithTypes <- foldMapM magic args
         let funcType = foldr (TArrow ()) bodyType (map getType argWithTypes)
         let innerEnv = argToEnv argWithTypes
         body' <- withRSF (\r s -> (innerEnv <> r, s)) (inferExprRS body)
-        let bodyType' = getType body'
-        unifyRS bodyType' bodyType
+        unifyRS (getType body') bodyType
+
         prefinalType <- asks (fromJust . lookup name)
         unifyRS prefinalType funcType
+
         let finalName = addType (TUnit ()) name
         let finalDec = Dec (a, funcType) finalName argWithTypes body'
         currSub <- get
         return $ map (applySubM currSub) (finalDec : decs)
     aux microencourage _ = return microencourage
-    magic :: [Argument a] -> RSF TypeEnv Subst [Argument (a, Type ())]
-    magic = foldrM aux []
-      where
-        aux :: Argument a -> [Argument (a, Type ())]  -> RSF TypeEnv Subst [Argument (a, Type ())]
-        aux arg args = do
-          t <- freshTypeUnkRS
-          let arg' = addType t arg
-          return (arg' : args)
+    magic :: Argument a -> RSF TypeEnv Subst (Argument (a, Type ()))
+    magic arg =
+      do
+        t <- freshTypeUnkRS
+        return $ addType t arg
 
 inferDecs :: (TypeEnv, Subst) -> [Dec a] -> Result [Dec (a, Type ())]
 inferDecs (env, sub) decs = evalRSF (inferDecsRS decs) env sub
