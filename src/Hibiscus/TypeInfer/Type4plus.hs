@@ -67,6 +67,7 @@ unifyRS t1_ t2_ =
       (TPar _ t1, _) -> unifyRS t1 t2
       (_, TPar _ t2) -> unifyRS t1 t2
       (TList _ t1, TList _ t2) -> unifyRS t1 t2
+      (TArray _ l1 t1, TArray _ l2 t2) | l1 == l2 -> unifyRS t1 t2
       (TUnknown _ v, t) -> bindVar v t
       (t, TUnknown _ v) -> bindVar v t
       (TArrow _ t1 t2, TArrow _ t1' t2') -> do
@@ -139,22 +140,23 @@ inferExprRS e@(EVar _ x) =
       Nothing -> fail $ "Unbound variable: " ++ show x
       Just t -> return $ addType t e
 inferExprRS (EList a exprs) =
-  let
-    -- aux :: Expr a -> (Subst, [Expr (a, Type ())]) -> Result (Subst, [Expr (a, Type ())])
-    aux :: Expr a -> [Expr (a, Type ())] -> RSF TypeEnv Subst [Expr (a, Type ())]
-    aux expr acc = do
-      expr' <- inferExprRS expr
-      s20 <- get
-      -- check if type same as previous
-      case acc of
-        (x:_) -> unifyRS (getType x) (getType expr')
-        []    -> modify id
-      finalSub <- get
-      return $ fmap (applySubM finalSub) (expr' : acc)
-  in do
+  do
     exprs' <- foldrM aux [] exprs
     t <- maybe freshTypeUnkRS (return . getType) $ listToMaybe exprs'
-    return $ EList (a, TList () t) exprs'
+    return $ EList (a, TArray () (length exprs') t) exprs'
+  where
+    -- aux :: Expr a -> (Subst, [Expr (a, Type ())]) -> Result (Subst, [Expr (a, Type ())])
+    aux :: Expr a -> [Expr (a, Type ())] -> RSF TypeEnv Subst [Expr (a, Type ())]
+    aux expr acc =
+      do
+        expr' <- inferExprRS expr
+        s20 <- get
+        -- check if type same as previous
+        case acc of
+          (x:_) -> unifyRS (getType x) (getType expr')
+          []    -> modify id
+        finalSub <- get
+        return $ fmap (applySubM finalSub) (expr' : acc)
 inferExprRS (ELetIn a decs body) =
   do
     (decs', body') <- withDecsRS decs miniworld
