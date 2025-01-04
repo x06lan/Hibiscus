@@ -10,25 +10,29 @@ import Hibiscus.Parsing.Parser (parseHibiscus)
 import Hibiscus.TypeInfer (infer)
 import System.Environment (getArgs)
 
+
+printList :: (Show a) => [a] -> IO ()
+printList = mapM_ (putStrLn . show)
+
 main :: IO ()
 main = do
   args <- getArgs
   when (null args) $ error "Usage: program <file-path>"
   let inputFilePath = head args
 
-  putStrLn "\n----- Parse Result ---------------"
+  putStrLn "\n----- Parsing Result ---------------"
   content <- BS.readFile inputFilePath
   case runAlex content parseHibiscus of
     Left err -> putStrLn $ "Parse Error: " ++ err ++ ", perhaps you forgot a ';'?"
     Right parseResult -> do
-      print parseResult
+      printList parseResult
       putStrLn "\n----- Type Infer Result ---------------"
       case infer parseResult of
         Left err -> putStrLn $ "Infer Error: " ++ err
-        Right dec -> do
-          putStrLn $ show dec
+        Right decs -> do
+          printList decs
           putStrLn "\n----- Code Generate Result ---------------"
-          let code = generate defaultConfig dec
+          let code = generate defaultConfig decs
           putStrLn $ show code
           writeFile (inputFilePath ++ ".asm") (instructionsToString code)
 

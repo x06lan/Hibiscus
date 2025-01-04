@@ -564,7 +564,7 @@ generateExprSt (Ast.ELetIn _ decs e) =
     modify (\s -> s{env = envs ++ [("letIn", DT.DTypeVoid)]})
     -- traceM (show decs)
     -- return $ error (show decs)
-    (inst, varInst, stackInst) <- foldMaplM generateDecSt (reverse decs) -- reverse order
+    (inst, varInst, stackInst) <- foldMaplM generateDecSt decs
     (result, inst1, varInst2, stackInst1) <- generateExprSt e
     modify (\s -> s{env = envs})
     return (result, inst +++ inst1, varInst ++ varInst2, stackInst ++ stackInst1)

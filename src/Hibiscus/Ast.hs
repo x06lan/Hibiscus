@@ -48,7 +48,7 @@ instance Show (Type a) where
   show (TPar _ t) = "(" ++ show t ++ ")"
   show (TUnit _) = "Unit"
   show (TList _ t) = "List " ++ show t
-  show (TArrow _ ta tb) = show ta ++ " -> " ++ show tb
+  show (TArrow _ ta tb) = "(" ++ show ta ++ " -> " ++ show tb ++ ")"
   show (TUnknown _ s) = "?" ++ show s
 
 data Argument a
