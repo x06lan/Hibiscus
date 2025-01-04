@@ -3,8 +3,8 @@ module Main where
 import Control.Monad (when)
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.Functor (void)
-import Hibiscus.CodeGen.Constants (defaultConfig)
 import Hibiscus.CodeGen (generate, instructionsToString)
+import Hibiscus.CodeGen.Constants (defaultConfig)
 import Hibiscus.Parsing.Lexer (runAlex)
 import Hibiscus.Parsing.Parser (parseHibiscus)
 import Hibiscus.TypeInfer (infer)
@@ -19,9 +19,9 @@ main = do
   putStrLn "\n----- Parse Result ---------------"
   content <- BS.readFile inputFilePath
   case runAlex content parseHibiscus of
-    Left err -> putStrLn $ "Parse Error: " ++ err
+    Left err -> putStrLn $ "Parse Error: " ++ err ++ ", perhaps you forgot a ';'?"
     Right parseResult -> do
-      -- print parseResult
+      print parseResult
       putStrLn "\n----- Type Infer Result ---------------"
       case infer parseResult of
         Left err -> print err

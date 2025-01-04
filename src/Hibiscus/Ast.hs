@@ -27,6 +27,7 @@ data Type a
   | TArrow a (Type a) (Type a)
   -- below only for inference
   | TUnknown a MetaSymbol
+  | TArray a Int (Type a)
   deriving (Functor, Foldable)
 
 instance Eq (Type a) where
