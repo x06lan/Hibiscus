@@ -3,25 +3,21 @@ module Hibiscus.CodeGen.Type.Bulitin where
 import Hibiscus.CodeGen.Types
 import Hibiscus.CodeGen.Type.DataType
 
-getBulitinFunction :: String -> FunctionSignature -> Maybe ExprReturn
-getBulitinFunction name (returnType, args) = 
-  let
-    magic ft = ExprApplication ft (returnType, args) []
-    justMagic = return . magic
-  in  
+getBulitinFunctionType :: String -> Maybe FunctionType
+getBulitinFunctionType name = 
   case name of
-    "Int" ->       justMagic $ TypeConstructor returnType
-    "Float" ->     justMagic $ TypeConstructor returnType
-    "Bool" ->      justMagic $ TypeConstructor returnType
-    "Vec2" ->      justMagic $ TypeConstructor returnType
-    "Vec3" ->      justMagic $ TypeConstructor returnType
-    "Vec4" ->      justMagic $ TypeConstructor returnType
-    "foldl" ->     justMagic $ FunctionFoldl 
-    "map" ->       justMagic $ FunctionMap 
-    "extract_0" -> justMagic $ TypeExtractor returnType [0]
-    "extract_1" -> justMagic $ TypeExtractor returnType [1]
-    "extract_2" -> justMagic $ TypeExtractor returnType [2]
-    "extract_3" -> justMagic $ TypeExtractor returnType [3]
+    "Int" ->       return $ TypeConstructor int32
+    "Float" ->     return $ TypeConstructor float32
+    "Bool" ->      return $ TypeConstructor bool
+    "Vec2" ->      return $ TypeConstructor vector2
+    "Vec3" ->      return $ TypeConstructor vector3
+    "Vec4" ->      return $ TypeConstructor vector4
+    "foldl" ->     return $ FunctionFoldl 
+    "map" ->       return $ FunctionMap 
+    "extract_0" -> return $ TypeExtractor float32 [0]
+    "extract_1" -> return $ TypeExtractor float32 [1]
+    "extract_2" -> return $ TypeExtractor float32 [2]
+    "extract_3" -> return $ TypeExtractor float32 [3]
     _ -> Nothing
 
 getBulitinType :: String -> Maybe DataType

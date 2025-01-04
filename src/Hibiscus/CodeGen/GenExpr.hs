@@ -305,9 +305,9 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
 
 -- used by generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name))
 handleVarFunctionSt :: String -> FunctionSignature -> State LanxSt VeryImportantTuple
-handleVarFunctionSt name fs@(returnType, args) =
-  case getBulitinFunction name fs of
-    Just er -> return (er, mempty, [], [])
+handleVarFunctionSt name (returnType, args) =
+  case getBulitinFunctionType name of
+    Just ft -> return (ExprApplication ft (returnType, args) [], mempty, [], [])
     Nothing ->
       do
         state1 <- get
