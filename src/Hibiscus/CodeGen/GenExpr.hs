@@ -404,20 +404,29 @@ handleOp' op =
    in ExprApplication (BaseFunction (OperatorFunction op)) funcSign []
 
 appendApplication :: ExprReturn -> [Variable] -> ExprReturn
-appendApplication (ExprApplication funcType funcSign args) arg = ExprApplication funcType funcSign (args ++ arg)
+appendApplication (ExprApplication funcType funcSign args) arg = 
+  ExprApplication funcType funcSign (args ++ arg)
+appendApplication (ExprResult x) [] = 
+  ExprResult x
+appendApplication (ExprResult x) arg =
+  error ("appendApplication: " ++ show x ++ " " ++ show arg)
+
+
+
 
 handleIfElseSt_aux1::[Variable] -> VeryImportantTuple -> State LanxSt VeryImportantTuple
 handleIfElseSt_aux1  args (er,inst,varInst,stackInst) =
   do
+    traceM ("handleIfElseSt_aux1 " ++ show er)
     let er' = appendApplication er args
     applyExpr (er',inst,varInst,stackInst)
 
 handleIfElseSt :: Expr ->Expr ->Expr -> [Variable]-> State LanxSt VeryImportantTuple
 handleIfElseSt condE thenE elseE args=
   do
-    (condEr,inst1,varInst1,stackInstCond) <-  generateExprSt condE >>= applyExpr
-    (thenEr,inst2,varInst2,stackInstThen) <- generateExprSt thenE>>= handleIfElseSt_aux1 args
-    (elseEr,inst3,varInst3,stackInstElse) <- generateExprSt elseE>>= handleIfElseSt_aux1 args
+    (condEr,inst1,varInst1,stackInstCond) <- generateExprSt condE >>= applyExpr
+    (thenEr,inst2,varInst2,stackInstThen) <- generateExprSt thenE >>= handleIfElseSt_aux1 args
+    (elseEr,inst3,varInst3,stackInstElse) <- generateExprSt elseE >>= handleIfElseSt_aux1 args
 
     let ExprResult (conditionId, _) = condEr
 
@@ -463,7 +472,7 @@ handleIfElseSt condE thenE elseE args=
     let varInst = varInst1 ++ varInst2 ++ varInst3 ++ [returnedInstruction varId $ Asm.OpVariable varTypeId Asm.Function]
     return (
       ExprResult (finalReturnId, returnType),
-      inst1 +++ inst2 +++ inst3,
+      inst1 +++ inst2 +++ inst3 +++ inst4 +++ inst5,
       varInst,
       sInst')
 
