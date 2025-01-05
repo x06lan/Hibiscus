@@ -73,6 +73,17 @@ insertResultSt key maybeER = do
           modify (\s -> s{idMap = Map.insert key value $ idMap s})
           return value
 
+insertResult' :: ResultType -> ExprReturn -> State LanxSt ()
+insertResult' key value =
+  do
+    viIdMap <- gets idMap
+    if isNothing $ Map.lookup key viIdMap
+      then
+        modify (\s -> s{idMap = Map.insert key value viIdMap})
+      else
+        -- don't comment me out :'(
+        error "duplicate key in idMap"
+
 generateTypeSt_aux1 :: DataType -> State LanxSt Instructions
 generateTypeSt_aux1 dType = do
   case dType of
@@ -231,7 +242,7 @@ generateDecSt (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
     (result, inst2, varInst, stackInst) <- generateExprSt e
     -- env_state2 <- gets env
     -- _ <- insertResultSt (ResultVariable (env_state2, BS.unpack name, varType)) (Just result)
-    env_state3 <- gets env
+    env_state3 <- gets env 
     -- idMap should not have insert key
     _ <- insertResultSt (ResultVariableValue (env_state3, BS.unpack name, varType)) (Just result)
     return (inst1 +++ inst2, varInst, stackInst)
