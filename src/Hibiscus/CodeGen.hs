@@ -16,7 +16,7 @@ import Hibiscus.CodeGen.Constants (global)
 import Hibiscus.CodeGen.GenExpr (
   generateExprSt,
   generateTypeSt,
-  insertResultSt,
+  findResultOrGenerateEntry,
   insertResult',
  )
 import Hibiscus.CodeGen.Types
@@ -64,7 +64,7 @@ generateUniformsSt_aux1 (name, dType, storage, location) =
     (typeId, inst1) <- generateTypeSt (DT.DTypePointer storage dType)
 
     env_s1 <- gets env
-    _er <- insertResultSt (ResultVariable (env_s1, name, dType)) Nothing
+    _er <- findResultOrGenerateEntry (ResultVariable (env_s1, name, dType))
     let ExprResult (id, _) = _er
 
     let variableInstruction = [returnedInstruction id (Asm.OpVariable typeId storage)]

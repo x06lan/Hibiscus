@@ -34,7 +34,7 @@ type VeryImportantTuple = (ExprReturn, Instructions, VariableInst, StackInst)
 ----- Below are used by a lot of place
 
 -- Helper function to generate a new entry for the IdType
--- used by insertResultSt
+-- used by findResultOrGenerateEntry
 generateEntrySt :: ResultType -> State LanxSt ExprReturn
 generateEntrySt key =
   let
@@ -63,6 +63,7 @@ generateEntrySt key =
 -- TODO: unwrap this function to two function
 insertResultSt :: ResultType -> Maybe ExprReturn -> State LanxSt ExprReturn
 insertResultSt key maybeER = do
+  traceM $ "[WARN] Deprecated: insertResultSt"
   state <- get
   case findResult state key of
     Just existingResult -> return existingResult
@@ -70,9 +71,16 @@ insertResultSt key maybeER = do
       case maybeER of
         Nothing -> generateEntrySt key
         Just value -> do
-          traceM $ "[WARN] Deprecated: Stoping using insertResultSt to update idMap"
           insertResult' key value
           return value
+
+findResultOrGenerateEntry :: ResultType -> State LanxSt ExprReturn
+findResultOrGenerateEntry key =
+  do
+    state <- get
+    case findResult state key of
+      Just existingResult -> return existingResult
+      Nothing -> generateEntrySt key
 
 insertResult' :: ResultType -> ExprReturn -> State LanxSt ()
 insertResult' key value =
@@ -151,7 +159,7 @@ generateTypeSt dType = do
     Just (ExprResult (typeId, _)) -> return (typeId, emptyInstructions)
     Nothing -> do
       inst <- generateTypeSt_aux1 dType
-      _er <- insertResultSt (ResultDataType dType) Nothing
+      _er <- findResultOrGenerateEntry (ResultDataType dType)
       let (ExprResult (typeId, _)) = _er
       inst3 <- generateTypeSt_aux2 dType typeId
       return (typeId, inst +++ inst3)
@@ -245,7 +253,7 @@ generateDecSt (Ast.Dec (_, t) (Ast.Name _ name) [] e) =
     -- _ <- insertResultSt (ResultVariable (env_state2, BS.unpack name, varType)) (Just result)
     env_state3 <- gets env 
     -- idMap should not have insert key
-    _ <- insertResult' (ResultVariableValue (env_state3, BS.unpack name, varType)) result
+    insertResult' (ResultVariableValue (env_state3, BS.unpack name, varType)) result
     return (inst1 +++ inst2, varInst, stackInst)
 
 -- this function is aux of generateFunctionSt
@@ -256,7 +264,7 @@ generateFunctionParamSt args =
     aux (name, dType) = do
       (typeId, inst1) <- generateTypeSt (DT.DTypePointer Asm.Function dType)
       env_s' <- gets env
-      _er <- insertResultSt (ResultVariable (env_s', name, dType)) Nothing
+      _er <- findResultOrGenerateEntry (ResultVariable (env_s', name, dType))
       let (ExprResult (id, _)) = _er
       let paramInst = returnedInstruction id (Asm.OpFunctionParameter typeId)
       return (inst1, paramInst)
@@ -280,7 +288,7 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name _ name) args e) =
 
     let funcId = Asm.IdName (intercalate "_" $ BS.unpack name : map show argsType)
     let result = ExprApplication (CustomFunction funcId (BS.unpack name)) (returnType, argsType) []
-    er <- insertResult' (ResultVariableValue (env_state1, BS.unpack name, functionType)) result
+    insertResult' (ResultVariableValue (env_state1, BS.unpack name, functionType)) result
 
     -- traceM (show (BS.unpack name,env_state1,  functionType, er))
 
@@ -324,7 +332,7 @@ generateConstSt v =  do
         do
           let dtype = dtypeof v
           (typeId, typeInst) <- generateTypeSt dtype
-          er <- insertResultSt (ResultConstant v) Nothing
+          er <- findResultOrGenerateEntry (ResultConstant v)
           let (ExprResult (constId, dType)) = er
           let constInstruction = [returnedInstruction constId (Asm.OpConstant typeId v)]
           let inst = typeInst{constFields = constFields typeInst ++ constInstruction}
@@ -437,7 +445,7 @@ generateExprSt (Ast.EVar (_, t1) (Ast.Name _ bsname)) =
           _ ->
             do
               let ExprResult (varId, varType) = fromMaybe (error ("cant find var:" ++ show (env state, name, dType))) (findResult state (ResultVariable (env state, name, dType)))
-              er <- insertResultSt (ResultVariableValue (env state, name, dType)) Nothing
+              er <- findResultOrGenerateEntry (ResultVariableValue (env state, name, dType))
               let ExprResult (valueId, _) = er
               searchTypeId_state2_varType <- gets (\s -> searchTypeId s varType) -- FIXME: please rename this
 
@@ -506,7 +514,7 @@ generateExprSt (Ast.EIfThenElse _ cond thenE elseE) =
       finalReturnId <- nextOpId
 
       envs <- gets env
-      _er <- insertResultSt (ResultVariable (envs, "ifThen" ++ show (opid_plus_1_num), returnType)) Nothing
+      _er <- findResultOrGenerateEntry (ResultVariable (envs, "ifThen" ++ show (opid_plus_1_num), returnType))
       let (ExprResult (varId, _)) = _er
 
       let sInst' =
