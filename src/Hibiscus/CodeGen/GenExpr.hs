@@ -253,11 +253,10 @@ generateFunctionParamSt args =
     do
       foldMaplM (fmap makeAssociative . aux) . fmap getNameAndDType $ args
 
--- aux used by handleVarFunctionSt
 -- used by generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name))
 generateFunctionSt :: Instructions -> Dec -> State LanxSt (Asm.OpId, Instructions)
 generateFunctionSt inst (Ast.DecAnno _ name t) = return (Asm.IdName "", inst)
-generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
+generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name _ name) args e) =
   do
     env_state0 <- gets env
     let functionType = typeConvert t
@@ -302,22 +301,6 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
     -- state' <- get
     -- return $ error (show $ idMap state')
     return (funcId, inst5)
-
--- used by generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name))
-handleVarFunctionSt :: String -> FunctionSignature -> State LanxSt VeryImportantTuple
-handleVarFunctionSt name (returnType, args) =
-  case getBulitinFunctionType name of
-    Just ft -> return (ExprApplication ft (returnType, args) [], mempty, [], [])
-    Nothing ->
-      do
-        state1 <- get
-        let dec = fromMaybe (error (name ++ show args)) (findDec (decs state1) name Nothing)
-        (id, inst1) <- generateFunctionSt emptyInstructions dec
-        -- state2 <- get
-
-        -- doTrace ("after "++ show (env state2)++show (findResult state2 (ResultVariableValue (env state2, name, DTypeFunction returnType args))))
-        -- doTrace (show (idMap state2))
-        return (ExprApplication (CustomFunction id name) (returnType, args) [], inst1, [], [])
 
 -- used by generateExprSt literals
 generateConstSt :: Asm.Literal -> State LanxSt VeryImportantTuple
@@ -411,24 +394,44 @@ generateExprSt (Ast.EList _ es) =
     (results, inst, var, stackInst) <- foldMaplM (fmap makeAssociative . generateExprSt) es
     (typeId, typeInst) <- generateTypeSt (DT.DTypeArray len DT.DTypeUnknown)
     error "Not implemented array" -- TODO: EList
-generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name)) =
+generateExprSt (Ast.EVar (_, t1) (Ast.Name _ bsname)) =
+  let
+    name = BS.unpack bsname
+  in
   do
     state <- get
     let dType = typeConvert t1
-    let maybeResult = findResult state (ResultVariableValue (env state, BS.unpack name, dType))
-    case maybeResult of
-      Just x -> return (x, mempty, [], [])
+    let k = ResultVariableValue (env state, name, dType)
+    case findResult state k of
+      Just er -> return (er, mempty, [], [])
       Nothing ->
         case dType of
-          DT.DTypeFunction returnType args -> handleVarFunctionSt (BS.unpack name) (returnType, args)
+          DT.DTypeFunction returnType args ->
+            case getBulitinFunctionType name of
+              Just funcTy ->
+                do
+                  let exprReturn = ExprApplication funcTy (returnType, args) []
+                  return (exprReturn, mempty, [], [])
+              Nothing ->
+                do
+                  state1 <- get
+                  let dec = fromMaybe (error (name ++ show args)) (findDec (decs state1) name Nothing)
+                  (id, inst1) <- generateFunctionSt emptyInstructions dec
+                  -- state2 <- get
+
+                  -- doTrace ("after "++ show (env state2)++show (findResult state2 (ResultVariableValue (env state2, name, DTypeFunction returnType args))))
+                  -- doTrace (show (idMap state2))
+                  return (ExprApplication (CustomFunction id name) (returnType, args) [], inst1, [], [])
           _ ->
             do
-              let ExprResult (varId, varType) = fromMaybe (error ("cant find var:" ++ show (env state, BS.unpack name, dType))) (findResult state (ResultVariable (env state, BS.unpack name, dType)))
-              er <- insertResultSt (ResultVariableValue (env state, BS.unpack name, dType)) Nothing
+              let ExprResult (varId, varType) = fromMaybe (error ("cant find var:" ++ show (env state, name, dType))) (findResult state (ResultVariable (env state, name, dType)))
+              er <- insertResultSt (ResultVariableValue (env state, name, dType)) Nothing
               let ExprResult (valueId, _) = er
               searchTypeId_state2_varType <- gets (\s -> searchTypeId s varType) -- FIXME: please rename this
+
+              let er = ExprResult (valueId, varType)
               let inst = returnedInstruction valueId (Asm.OpLoad searchTypeId_state2_varType varId)
-              return (ExprResult (valueId, varType), mempty, [], [inst])
+              return (er, mempty, [], [inst])
 generateExprSt (Ast.EString _ _) = error "String"
 generateExprSt (Ast.EUnit _) = error "Unit"
 generateExprSt (Ast.EApp _ e1 e2) =

@@ -57,11 +57,12 @@ findResult s key =
    in findResult' key viIdMap
 
 searchTypeId :: LanxSt -> DataType -> Asm.OpId
-searchTypeId s dt = case findResult s (ResultDataType dt) of
-  Just x -> case x of
-    ExprResult (id, _) -> id
-    _ -> error (show dt ++ " type not found")
-  Nothing -> error (show dt ++ " type not found")
+searchTypeId s dt =
+  case findResult s (ResultDataType dt) of
+    Just x -> case x of
+      ExprResult (id, _) -> id
+      _ -> error (show dt ++ " type not found")
+    Nothing -> error (show dt ++ " type not found")
 
 findDec' :: String -> Maybe FunctionSignature -> [Dec] -> Maybe Dec
 findDec' name maybeFS = find' aux
