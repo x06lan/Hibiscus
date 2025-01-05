@@ -68,6 +68,8 @@ unifyRS t1_ t2_ =
       (_, TPar _ t2) -> unifyRS t1 t2
       (TList _ t1, TList _ t2) -> unifyRS t1 t2
       (TArray _ l1 t1, TArray _ l2 t2) | l1 == l2 -> unifyRS t1 t2
+      (TArray _ _ t1, TList _ t2) -> unifyRS t1 t2
+      (TList _ t1, TArray _ _ t2) -> unifyRS t1 t2
       (TUnknown _ v, t) -> bindVar v t
       (t, TUnknown _ v) -> bindVar v t
       (TArrow _ t1 t2, TArrow _ t1' t2') -> do
