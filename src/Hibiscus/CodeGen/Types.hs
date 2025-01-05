@@ -22,6 +22,7 @@ import qualified Hibiscus.CodeGen.Type.DataType as DT
 import qualified Hibiscus.Parsing.Lexer as L
 import qualified Hibiscus.TypeInfer as TI
 import Hibiscus.Util (foldMaplM, foldMaprM, replace)
+import Data.Type.Bool (If)
 
 
 ----- Instruction constructor helpers BEGIN -----
@@ -36,6 +37,8 @@ commentInstruction :: String -> Asm.Instruction
 commentInstruction = noReturnInstruction . Asm.Comment
 
 ----- Instruction constructor helpers END -------
+
+type VeryImportantTuple = (ExprReturn, Instructions, VariableInst, StackInst)
 
 type Variable = (Asm.OpId, DataType)
 
@@ -59,6 +62,7 @@ type ResultMap = Map.Map ResultType ExprReturn
 type VariableInst = [Asm.Instruction]
 type StackInst = [Asm.Instruction]
 
+
 data Config = Config
   { capability :: Asm.Capability
   , extension :: String
@@ -71,13 +75,18 @@ data Config = Config
   -- uniforms :: [Uniform] -- (name, type, position)
   }
 
-data FunctionType
+data BaseFunctionType
   = CustomFunction Asm.OpId String
   | TypeConstructor DataType -- function type constructor
   | TypeExtractor DataType [Int] -- function type decorator
   | OperatorFunction (Ast.Op (L.Range, Type))
   | FunctionFoldl -- base function
   | FunctionMap -- base function
+  deriving (Show)
+
+data FunctionType
+  = BaseFunction BaseFunctionType
+  | IfElseApplication Expr Expr Expr  -- if, then, else
   deriving (Show)
 
 data ExprReturn

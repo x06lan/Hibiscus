@@ -3,6 +3,7 @@
 {-# OPTIONS_GHC -fno-warn-unused-binds -fno-warn-missing-signatures #-}
 
 {-# HLINT ignore "Avoid lambda using `infix`" #-}
+{-# HLINT ignore "Redundant return" #-}
 
 module Hibiscus.CodeGen.GenExpr where
 
@@ -15,7 +16,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Monoid (First (..), getFirst)
 import Data.STRef (newSTRef)
-import Debug.Trace (traceM)
+import Debug.Trace (traceM, trace)
 import qualified Hibiscus.Asm as Asm
 import qualified Hibiscus.Ast as Ast
 import Hibiscus.CodeGen.Constants (global)
@@ -27,9 +28,12 @@ import Hibiscus.CodeGen.Util
 import qualified Hibiscus.Parsing.Lexer as L
 import qualified Hibiscus.TypeInfer as TI
 import Hibiscus.Util (foldMaplM, foldMaprM)
+import Data.Type.Equality (apply)
+import Control.Exception (handle)
+import Control.Monad (when)
+import Control.Arrow (ArrowApply(app))
 
 
-type VeryImportantTuple = (ExprReturn, Instructions, VariableInst, StackInst)
 
 ----- Below are used by a lot of place
 
@@ -287,10 +291,9 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name _ name) args e) =
     env_state1 <- gets env
 
     let funcId = Asm.IdName (intercalate "_" $ BS.unpack name : map show argsType)
-    let result = ExprApplication (CustomFunction funcId (BS.unpack name)) (returnType, argsType) []
-    insertResult' (ResultVariableValue (env_state1, BS.unpack name, functionType)) result
+    let result = ExprApplication (BaseFunction (CustomFunction funcId (BS.unpack name))) (returnType, argsType) []
+    er <- insertResultSt (ResultVariableValue (env_state1, BS.unpack name, functionType)) (Just result)
 
-    -- traceM (show (BS.unpack name,env_state1,  functionType, er))
 
     state <- get
 
@@ -350,8 +353,8 @@ applyFunctionSt_aux1 (typeId, t) =
       , [noReturnInstruction (Asm.OpStore varId (fst t))]
       )
 
-applyFunctionSt :: Asm.OpId -> DataType -> [Variable] -> State LanxSt VeryImportantTuple
-applyFunctionSt id returnType args =
+functionCallSt :: Asm.OpId -> DataType -> [Variable] -> State LanxSt VeryImportantTuple
+functionCallSt id returnType args =
   do
     searchTypeId_state0_returnType <- gets (\s -> searchTypeId s returnType) -- FIXME: please rename this
     let makeAssociative (id, inst) = ([id], inst)
@@ -365,8 +368,8 @@ applyFunctionSt id returnType args =
     -- state' = state {idCount = idCount state + 1}
     return (ExprResult (resultId, returnType), inst1, varInst, stackInst ++ [stackInst'])
 
-handleConstructorSt :: DataType -> DataType -> [Variable] -> State LanxSt VeryImportantTuple
-handleConstructorSt returnType functionType args =
+handleConstructorSt :: DataType -> [Variable] -> State LanxSt VeryImportantTuple
+handleConstructorSt returnType args =
   do
     (typeId, inst) <- generateTypeSt returnType
     returnId <- nextOpId -- handle type convert
@@ -398,9 +401,97 @@ handleOp' op =
         Ast.Ge _ -> (DT.bool, [DT.DTypeUnknown, DT.DTypeUnknown])
         Ast.And _ -> (DT.DTypeUnknown, [DT.DTypeUnknown, DT.DTypeUnknown])
         Ast.Or _ -> (DT.DTypeUnknown, [DT.DTypeUnknown, DT.DTypeUnknown])
-   in ExprApplication (OperatorFunction op) funcSign []
+   in ExprApplication (BaseFunction (OperatorFunction op)) funcSign []
 
------
+appendApplication :: ExprReturn -> [Variable] -> ExprReturn
+appendApplication (ExprApplication funcType funcSign args) arg = 
+  ExprApplication funcType funcSign (args ++ arg)
+appendApplication (ExprResult x) [] = 
+  ExprResult x
+appendApplication (ExprResult x) arg =
+  error ("appendApplication: " ++ show x ++ " " ++ show arg)
+
+
+
+
+handleIfElseSt_aux1::[Variable] -> VeryImportantTuple -> State LanxSt VeryImportantTuple
+handleIfElseSt_aux1  args (er,inst,varInst,stackInst) =
+  do
+    traceM ("handleIfElseSt_aux1 " ++ show er)
+    let er' = appendApplication er args
+    applyExpr (er',inst,varInst,stackInst)
+
+handleIfElseSt :: Expr ->Expr ->Expr -> [Variable]-> State LanxSt VeryImportantTuple
+handleIfElseSt condE thenE elseE args=
+  do
+    (condEr,inst1,varInst1,stackInstCond) <- generateExprSt condE >>= applyExpr
+    (thenEr,inst2,varInst2,stackInstThen) <- generateExprSt thenE >>= handleIfElseSt_aux1 args
+    (elseEr,inst3,varInst3,stackInstElse) <- generateExprSt elseE >>= handleIfElseSt_aux1 args
+
+    let ExprResult (conditionId, _) = condEr
+
+    let ExprResult (thenResultId, returnType) = thenEr
+    let ExprResult (elseResultId, _rt       ) = elseEr
+    let varType = DT.DTypePointer Asm.Function returnType
+
+    (varTypeId, inst4) <- generateTypeSt varType
+    (varValueTypeId, inst5) <- generateTypeSt returnType
+
+    opid_plus_1 <- nextOpId
+    let (Asm.Id opid_plus_1_num) = opid_plus_1
+    thenLabelId <- nextOpId
+    elseLabelId <- nextOpId
+    ifThenElseEndLabelId <- nextOpId
+    finalReturnId <- nextOpId
+
+    envs <- gets env
+    _er <- insertResultSt (ResultVariable (envs, "ifThen" ++ show (opid_plus_1_num), returnType)) Nothing
+    let (ExprResult (varId, _)) = _er
+
+    let sInst' =
+      -- sInst1'
+          stackInstCond ++
+          [noReturnInstruction $ Asm.OpSelectionMerge (ifThenElseEndLabelId) Asm.None] ++
+          [noReturnInstruction $ Asm.OpBranchConditional conditionId (thenLabelId) (elseLabelId)] ++ 
+      -- sInst2'
+          [commentInstruction "then branch"] ++
+          [returnedInstruction (thenLabelId) Asm.OpLabel] ++
+          stackInstThen ++
+          [noReturnInstruction $ Asm.OpStore varId thenResultId] ++
+          [noReturnInstruction $ Asm.OpBranch (ifThenElseEndLabelId)] ++
+      -- sInst3'
+          [commentInstruction "else branch"] ++
+          [returnedInstruction (elseLabelId) Asm.OpLabel] ++
+          stackInstElse ++
+          [noReturnInstruction $ Asm.OpStore varId elseResultId] ++
+          [noReturnInstruction $ Asm.OpBranch (ifThenElseEndLabelId)] ++
+      --
+          [commentInstruction "merged branch"] ++
+          [returnedInstruction (ifThenElseEndLabelId) Asm.OpLabel] ++
+          [returnedInstruction (finalReturnId) $ Asm.OpLoad varValueTypeId varId]
+    let varInst = varInst1 ++ varInst2 ++ varInst3 ++ [returnedInstruction varId $ Asm.OpVariable varTypeId Asm.Function]
+    return (
+      ExprResult (finalReturnId, returnType),
+      inst1 +++ inst2 +++ inst3 +++ inst4 +++ inst5,
+      varInst,
+      sInst')
+
+applyExpr :: VeryImportantTuple -> State LanxSt VeryImportantTuple
+applyExpr (var1, inst1, varInst1, stackInst1) =
+  do
+    (var2,inst2,varInst2,stackInst2) <-  case var1 of
+        ExprResult x ->  return (ExprResult x, mempty,[],[]) -- already evaluated
+        ExprApplication funcType (returnType,argsType) args -> case funcType of
+            BaseFunction (CustomFunction id s) -> functionCallSt id returnType args
+            BaseFunction (TypeConstructor t )-> handleConstructorSt t args
+            BaseFunction (TypeExtractor t int )-> handleExtractSt t int (head args)
+            BaseFunction (OperatorFunction op )-> error "Not implemented" -- TODO:
+            BaseFunction FunctionFoldl -> error "Not implemented" -- TODO: eval foldl gen array length
+            IfElseApplication condEr thenEr elseEr -> handleIfElseSt condEr thenEr elseEr args
+            _ -> error "Not implemented"
+    
+
+    return (var2, inst1 +++ inst2, varInst1 ++ varInst2, stackInst1 ++ stackInst2)
 
 generateExprSt :: Expr -> State LanxSt VeryImportantTuple
 generateExprSt (Ast.EPar _ e) = generateExprSt e
@@ -430,7 +521,7 @@ generateExprSt (Ast.EVar (_, t1) (Ast.Name _ bsname)) =
             case getBulitinFunctionType name of
               Just funcTy ->
                 do
-                  let exprReturn = ExprApplication funcTy (returnType, args) []
+                  let exprReturn = ExprApplication (BaseFunction funcTy) (returnType, args) []
                   return (exprReturn, mempty, [], [])
               Nothing ->
                 do
@@ -441,7 +532,7 @@ generateExprSt (Ast.EVar (_, t1) (Ast.Name _ bsname)) =
 
                   -- doTrace ("after "++ show (env state2)++show (findResult state2 (ResultVariableValue (env state2, name, DTypeFunction returnType args))))
                   -- doTrace (show (idMap state2))
-                  return (ExprApplication (CustomFunction id name) (returnType, args) [], inst1, [], [])
+                  return (ExprApplication (BaseFunction (CustomFunction id name)) (returnType, args) [], inst1, [], [])
           _ ->
             do
               let ExprResult (varId, varType) = fromMaybe (error ("cant find var:" ++ show (env state, name, dType))) (findResult state (ResultVariable (env state, name, dType)))
@@ -456,93 +547,27 @@ generateExprSt (Ast.EString _ _) = error "String"
 generateExprSt (Ast.EUnit _) = error "Unit"
 generateExprSt (Ast.EApp _ e1 e2) =
   do
-    (var1, inst1, varInst1, stackInst1) <- generateExprSt e1
-    (var2, inst2, varInst2, stackInst2) <- generateExprSt e2
-    (var3, inst3, varInst3, stackInst3) <-
-      case var1 of
-        ExprApplication funcType (returnType, argTypes) args ->
-          let args' = case var2 of
-                ExprResult v -> args ++ [v] -- add argument
-                _ -> error "Expected ExprResult"
-              functionType = DT.DTypeFunction returnType argTypes
-           in case (length args', length argTypes) of
-                (l, r) | l == r ->
-                  case funcType of
-                    CustomFunction id s -> applyFunctionSt id returnType args'
-                    TypeConstructor t -> handleConstructorSt t functionType args'
-                    TypeExtractor t int -> handleExtractSt t int (head args')
-                    OperatorFunction op -> error "Not implemented" -- TODO:
-                    FunctionFoldl -> error "Not implemented" -- TODO: eval foldl gen array length
-                (l, r)
-                  | l < r ->
-                      -- uncompleted applicatoin
-                      return $ (ExprApplication funcType (returnType, argTypes) args', mempty, [], [])
-                (l, r) | l > r -> error "Too many arguments"
-        _ -> error (show var1 ++ show var2)
-    let finalVar = var3
-    let inst' = inst1 +++ inst2 +++ inst3
-    let varInst' = varInst1 ++ varInst2 ++ varInst3
-    -- let stackInst' = stackInst1 ++ stackInst2 ++ stackInst3
-    traceM (show (stackInst1, stackInst2, stackInst3))
-    traceM (show (e1, e2))
-    let stackInst' = stackInst1 ++ stackInst2 ++ stackInst3
-    return (finalVar, inst', varInst', stackInst')
+    (r1, inst1, varInst1, stackInst1) <- generateExprSt e1
+    (r2, inst2, varInst2, stackInst2) <- generateExprSt e2 >>= applyExpr
+
+    let ExprApplication funcType (returnType, argTypes) args = r1
+    let ExprResult var2 =  r2
+
+    let args' = args ++ [var2]
+    let r3 =ExprApplication funcType (returnType, argTypes) args'
+
+    result <- if length argTypes == length args' then do
+        -- if arg fullfilled then apply function
+        (r4, inst3, varInst3, stackInst3) <- applyExpr (r3, inst1 +++ inst2, varInst1 ++ varInst2, stackInst1 ++ stackInst2)
+        return (r4, inst3, varInst3, stackInst3)
+      else do
+        return (r3, inst1 +++ inst2, varInst1 ++ varInst2, stackInst1 ++ stackInst2)
+    return result
+
 generateExprSt (Ast.EIfThenElse _ cond thenE elseE) =
-  let
-    getIdFromBool :: ExprReturn -> Asm.OpId
-    getIdFromBool (ExprResult (id, DT.DTypeBool)) = id
-    getIdFromBool _ = error "Expected bool"
-   in
     do
-      (_erCondResult, inst1, varInst1, stackInstCond) <- generateExprSt cond
-      let conditionId = getIdFromBool _erCondResult
-      (_erThen, inst2, varInst2, stackInstThen) <- generateExprSt thenE
-      (_erElse, inst3, varInst3, stackInstElse) <- generateExprSt elseE
-      let ExprResult (thenResultId, returnType) = _erThen
-      let ExprResult (elseResultId, _rt') = _erElse
-      -- when (returnType != _rt')
-      --   error "type infer fucked up, then-branch-type is not same as else-branch-type"
-      let varType = DT.DTypePointer Asm.Function returnType
-      (varTypeId, inst4) <- generateTypeSt varType
-      (varValueTypeId, inst5) <- generateTypeSt returnType
-
-      opid_plus_1 <- nextOpId
-      let (Asm.Id opid_plus_1_num) = opid_plus_1
-      thenLabelId <- nextOpId
-      elseLabelId <- nextOpId
-      ifThenElseEndLabelId <- nextOpId
-      finalReturnId <- nextOpId
-
-      envs <- gets env
-      _er <- findResultOrGenerateEntry (ResultVariable (envs, "ifThen" ++ show (opid_plus_1_num), returnType))
-      let (ExprResult (varId, _)) = _er
-
-      let sInst' =
-        -- sInst1'
-            stackInstCond ++
-            [noReturnInstruction $ Asm.OpSelectionMerge (ifThenElseEndLabelId) Asm.None] ++
-            [noReturnInstruction $ Asm.OpBranchConditional conditionId (thenLabelId) (elseLabelId)] ++ 
-        -- sInst2'
-            [commentInstruction "then branch"] ++
-            [returnedInstruction (thenLabelId) Asm.OpLabel] ++
-            stackInstThen ++
-            [noReturnInstruction $ Asm.OpStore varId thenResultId] ++
-            [noReturnInstruction $ Asm.OpBranch (ifThenElseEndLabelId)] ++
-        -- sInst3'
-            [commentInstruction "else branch"] ++
-            [returnedInstruction (elseLabelId) Asm.OpLabel] ++
-            stackInstElse ++
-            [noReturnInstruction $ Asm.OpStore varId elseResultId] ++
-            [noReturnInstruction $ Asm.OpBranch (ifThenElseEndLabelId)] ++
-        --
-            [returnedInstruction (ifThenElseEndLabelId) Asm.OpLabel] ++
-            [returnedInstruction (finalReturnId) $ Asm.OpLoad varValueTypeId varId]
-      let varInst = varInst1 ++ varInst2 ++ varInst3 ++ [returnedInstruction varId $ Asm.OpVariable varTypeId Asm.Function]
-      return (
-        ExprResult (finalReturnId, returnType),
-        inst1 +++ inst2 +++ inst3 +++ inst4 +++ inst5,
-        varInst,
-        sInst')
+      let result =ExprApplication (IfElseApplication cond thenE elseE) (DT.DTypeUnknown, []) []
+      return (result, mempty, [], [])
 generateExprSt (Ast.ENeg _ e) =
   do
     (_er, inst1, varInst1, stackInst1) <- generateExprSt e
@@ -551,9 +576,9 @@ generateExprSt (Ast.ENeg _ e) =
     return (ExprResult var', inst1, varInst1, stackInst1 ++ stackInst2)
 generateExprSt (Ast.EBinOp _ e1 op e2) =
   do
-    (_er, inst1, varInst1, stackInst1) <- generateExprSt e1
+    (_er, inst1, varInst1, stackInst1) <- generateExprSt e1 >>= applyExpr
     let ExprResult var1 = _er
-    (_er, inst2, varInst2, stackInst2) <- generateExprSt e2
+    (_er, inst2, varInst2, stackInst2) <- generateExprSt e2 >>= applyExpr
     let ExprResult var2 = _er
     (var3, inst3, stackInst3) <- generateBinOpSt var1 op var2
     return (ExprResult var3, inst1 +++ inst2 +++ inst3, varInst1 ++ varInst2, stackInst1 ++ stackInst2 ++ stackInst3)

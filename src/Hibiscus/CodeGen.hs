@@ -16,6 +16,7 @@ import Hibiscus.CodeGen.Constants (global)
 import Hibiscus.CodeGen.GenExpr (
   generateExprSt,
   generateTypeSt,
+  insertResultSt, applyExpr,
   findResultOrGenerateEntry,
   insertResult',
  )
@@ -114,8 +115,8 @@ generateMainFunctionSt inst cfg (Ast.Dec (_, t) (Ast.Name _ name) args e) =
     labelId <- nextOpId
 
     inst2 <- generateUniformsSt cfg args
-    (_er, inst3, varInst, exprInst) <- generateExprSt e
-    let (ExprResult (resultId, _)) = _er
+    (_er, inst3, varInst, exprInst) <- (generateExprSt e >>= applyExpr)
+    let (ExprResult (resultId, _)) =  _er
     state5 <- get
     let returnTypeId = searchTypeId state5 returnType
 

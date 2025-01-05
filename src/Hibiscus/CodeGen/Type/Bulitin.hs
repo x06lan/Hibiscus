@@ -3,7 +3,7 @@ module Hibiscus.CodeGen.Type.Bulitin where
 import Hibiscus.CodeGen.Types
 import Hibiscus.CodeGen.Type.DataType
 
-getBulitinFunctionType :: String -> Maybe FunctionType
+getBulitinFunctionType :: String -> Maybe BaseFunctionType
 getBulitinFunctionType name = 
   case name of
     "Int" ->       return $ TypeConstructor int32
