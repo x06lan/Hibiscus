@@ -52,6 +52,7 @@ instance Show (Type a) where
   show (TList _ t) = "List " ++ show t
   show (TArrow _ ta tb) = "(" ++ show ta ++ " -> " ++ show tb ++ ")"
   show (TUnknown _ s) = "?" ++ show s
+  show (TArray _ size t) = "Array " ++ show t ++ ", " ++ show size
 
 data Argument a
   = Argument a (Name a)
