@@ -4,6 +4,7 @@ import Data.Foldable (foldlM, foldrM)
 import Data.Bifunctor
 
 
+-- For which the result (b) is a monoid, but the state (m) is not.
 foldMaprM :: (Foldable t, Monad m, Monoid b) => (a -> m b) -> t a -> m b
 foldMaprM f = foldrM aux mempty
   where
@@ -11,6 +12,7 @@ foldMaprM f = foldrM aux mempty
       b <- f a
       return $ b <> bcc
 
+-- For which the result (b) is a monoid, but the state (m) is not.
 foldMaplM :: (Foldable t, Monad m, Monoid b) => (a -> m b) -> t a -> m b
 foldMaplM f = foldlM aux mempty
   where

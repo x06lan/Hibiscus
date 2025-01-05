@@ -3,12 +3,16 @@ module Main where
 import Control.Monad (when)
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.Functor (void)
-import Hibiscus.CodeGen.Constants (defaultConfig)
 import Hibiscus.CodeGen (generate, instructionsToString)
+import Hibiscus.CodeGen.Constants (defaultConfig)
 import Hibiscus.Parsing.Lexer (runAlex)
 import Hibiscus.Parsing.Parser (parseHibiscus)
 import Hibiscus.TypeInfer (infer)
 import System.Environment (getArgs)
+
+
+printList :: (Show a) => [a] -> IO ()
+printList = mapM_ (putStrLn . show)
 
 main :: IO ()
 main = do
@@ -16,19 +20,19 @@ main = do
   when (null args) $ error "Usage: program <file-path>"
   let inputFilePath = head args
 
-  putStrLn "\n----- Parse Result ---------------"
+  putStrLn "\n----- Parsing Result ---------------"
   content <- BS.readFile inputFilePath
   case runAlex content parseHibiscus of
-    Left err -> putStrLn $ "Parse Error: " ++ err
+    Left err -> putStrLn $ "Parse Error: " ++ err ++ ", perhaps you forgot a ';'?"
     Right parseResult -> do
-      -- print parseResult
+      printList parseResult
       putStrLn "\n----- Type Infer Result ---------------"
       case infer parseResult of
-        Left err -> print err
-        Right dec -> do
-          putStrLn $ show dec
+        Left err -> putStrLn $ "Infer Error: " ++ err
+        Right decs -> do
+          printList decs
           putStrLn "\n----- Code Generate Result ---------------"
-          let code = generate defaultConfig dec
+          let code = generate defaultConfig decs
           putStrLn $ show code
           writeFile (inputFilePath ++ ".asm") (instructionsToString code)
 

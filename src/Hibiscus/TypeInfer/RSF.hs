@@ -70,12 +70,8 @@ mapRSF f = mapRWST $ fmap (xmap f)
 withRSF :: (r' -> s -> (r, s)) -> RSF r s a -> RSF r' s a
 withRSF = withRWST
 
-withRSF' :: (r -> s -> Result (r', s)) -> RSF r' s a -> RSF r s a
-withRSF' f rsf = RWST $ \r s -> 
-  case f r s of
-    Left err -> fail err
-    Right (r', s') ->
-      do
-        -- Run the original RSF with the transformed `r` and `s'`
-        (a, s'', _) <- runRWST rsf r' s'
-        return (a, s'', ())
+withRWST' :: (Monad m) => (r' -> s -> m (r, s)) -> RWST r w s m a -> RWST r' w s m a
+withRWST' f rwsm = RWST $ \r' s -> (f r' s >>= \(r, s') -> runRWST rwsm r s')
+
+withRSF' :: (r' -> s -> Result (r, s)) -> RSF r s a -> RSF r' s a
+withRSF' = withRWST'

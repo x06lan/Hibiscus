@@ -4,6 +4,7 @@
 
 module Hibiscus.CodeGen.Util where
 
+import Hibiscus.CodeGen.Type.Bulitin
 import Control.Exception (handle)
 
 -- type infer
@@ -56,11 +57,12 @@ findResult s key =
    in findResult' key viIdMap
 
 searchTypeId :: LanxSt -> DataType -> Asm.OpId
-searchTypeId s dt = case findResult s (ResultDataType dt) of
-  Just x -> case x of
-    ExprResult (id, _) -> id
-    _ -> error (show dt ++ " type not found")
-  Nothing -> error (show dt ++ " type not found")
+searchTypeId s dt =
+  case findResult s (ResultDataType dt) of
+    Just x -> case x of
+      ExprResult (id, _) -> id
+      _ -> error (show dt ++ " type not found")
+    Nothing -> error (show dt ++ " type not found")
 
 findDec' :: String -> Maybe FunctionSignature -> [Dec] -> Maybe Dec
 findDec' name maybeFS = find' aux
@@ -74,7 +76,7 @@ findDec' name maybeFS = find' aux
     Just (_, argTs) ->
       ( \case
           Ast.Dec _ (Ast.Name _ n) args' _ ->
-            let argTs' = map (DT.typeConvert . TI.getType) args'
+            let argTs' = map (typeConvert . TI.getType) args'
              in n == BS.pack name && argTs == argTs
           _ -> False
       )
@@ -102,3 +104,26 @@ idNameOf l = case l of
   Asm.LUint u -> "uint_" ++ show u
   Asm.LInt i -> "int_" ++ show i
   Asm.LFloat f -> "float_" ++ replace '.' '_' (show f)
+
+getNameAndDType :: Argument -> (String, DataType)
+getNameAndDType (Ast.Argument (_, t) (Ast.Name _ name)) = (BS.unpack name, typeConvert t)
+
+typeConvert :: Ast.Type () -> DataType
+typeConvert t@(Ast.TVar _ (Ast.Name _ n)) =
+  case getBulitinType (BS.unpack n) of
+    Just x -> x
+    Nothing -> error ("Not implemented" ++ show t)
+typeConvert (Ast.TPar _ t) = typeConvert t
+typeConvert t@(Ast.TArrow _ t1 t2) = 
+  let
+    processArrow :: Ast.Type () -> ([DataType], DataType)
+    processArrow (Ast.TArrow _ t1' t2') =
+      let (args, ret) = processArrow t2'
+        in (typeConvert t1' : args, ret)
+    processArrow t = ([], typeConvert t)
+
+    (argTypes, returnType) = processArrow t
+  in DT.DTypeFunction returnType argTypes
+typeConvert (Ast.TApp _ t) = error ("Not implemented App" ++ show t)
+typeConvert (Ast.TUnit _) = DT.DTypeVoid
+typeConvert t = error ("Not implemented? " ++ show t)

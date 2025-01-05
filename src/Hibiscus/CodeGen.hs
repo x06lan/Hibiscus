@@ -17,11 +17,13 @@ import Hibiscus.CodeGen.GenExpr (
   generateExprSt,
   generateTypeSt,
   insertResultSt, applyExpr,
+  findResultOrGenerateEntry,
+  insertResult',
  )
 import Hibiscus.CodeGen.Types
 import Hibiscus.CodeGen.Type.DataType (DataType)
 import qualified Hibiscus.CodeGen.Type.DataType as DT
-import Hibiscus.CodeGen.Util (findDec, findResult, searchTypeId)
+import Hibiscus.CodeGen.Util (findDec, findResult, searchTypeId, getNameAndDType)
 import qualified Hibiscus.TypeInfer as TI
 import Hibiscus.Util (foldMaplM, foldMaprM)
 
@@ -45,7 +47,7 @@ generateInitSt cfg decs =
         , env = [global]
         , decs = decs
         }
-    _ <- insertResultSt (ResultCustom "ext ") (Just (ExprResult (Asm.Id 1, DT.DTypeVoid))) -- ext
+    _ <- insertResult' (ResultCustom "ext ") (ExprResult (Asm.Id 1, DT.DTypeVoid)) -- ext
     let inst =
           Instructions
             { headerFields = headInstruction
@@ -63,7 +65,7 @@ generateUniformsSt_aux1 (name, dType, storage, location) =
     (typeId, inst1) <- generateTypeSt (DT.DTypePointer storage dType)
 
     env_s1 <- gets env
-    _er <- insertResultSt (ResultVariable (env_s1, name, dType)) Nothing
+    _er <- findResultOrGenerateEntry (ResultVariable (env_s1, name, dType))
     let ExprResult (id, _) = _er
 
     let variableInstruction = [returnedInstruction id (Asm.OpVariable typeId storage)]
@@ -99,15 +101,15 @@ generateUniformsSt cfg args =
 -- error (show (env state') ++ show uniforms')
 
 generateMainFunctionSt :: Instructions -> Config -> Dec -> State LanxSt Instructions
-generateMainFunctionSt inst cfg (Ast.Dec (_, t) (Ast.Name (_, _) name) args e) =
+generateMainFunctionSt inst cfg (Ast.Dec (_, t) (Ast.Name _ name) args e) =
   do
     let (returnType, argsType) = (DT.DTypeVoid, [])
     let functionType = DT.DTypeFunction returnType argsType
 
     (typeId, inst1) <- generateTypeSt functionType
 
-    _er <- insertResultSt (ResultCustom "func ") (Just (ExprResult (Asm.IdName (BS.unpack name), functionType)))
-    let ExprResult (funcId, _) = _er
+    let funcId = Asm.IdName (BS.unpack name)
+    insertResult' (ResultCustom "func ") (ExprResult (funcId, functionType))
 
     modify (\s -> s{env = global : [(BS.unpack name, functionType)]})
     labelId <- nextOpId

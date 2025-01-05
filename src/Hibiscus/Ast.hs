@@ -27,7 +27,13 @@ data Type a
   | TArrow a (Type a) (Type a)
   -- below only for inference
   | TUnknown a MetaSymbol
+  -- below only for CodeGen
+  | TArray a Int (Type a)
   deriving (Functor, Foldable)
+
+isUnknown :: Type a -> Bool
+isUnknown (TUnknown _ _) = True
+isUnknown _ = False
 
 instance Eq (Type a) where
   (TVar _ n1) == (TVar _ n2) = n1 == n2
@@ -35,6 +41,7 @@ instance Eq (Type a) where
   t1 == (TPar _ t2) = t1 == t2
   (TUnit _) == (TUnit _) = True
   (TList _ t1) == (TList _ t2) = t1 == t2
+  (TArray _ l1 t1) == (TArray _ l2 t2) = t1 == t2 && l1 == l2
   (TArrow _ t1a t1b) == (TArrow _ t2a t2b) = t1a == t2a && t1b == t2b
   _ == _ = False
 
@@ -43,7 +50,7 @@ instance Show (Type a) where
   show (TPar _ t) = "(" ++ show t ++ ")"
   show (TUnit _) = "Unit"
   show (TList _ t) = "List " ++ show t
-  show (TArrow _ ta tb) = show ta ++ " -> " ++ show tb
+  show (TArrow _ ta tb) = "(" ++ show ta ++ " -> " ++ show tb ++ ")"
   show (TUnknown _ s) = "?" ++ show s
 
 data Argument a

@@ -4,7 +4,7 @@
 
 module Hibiscus.TypeInfer.Type4plus where
 
-import Hibiscus.Util (fmap2nd)
+import Hibiscus.Util (fmap2nd, foldMapM, foldMaprM)
 import Hibiscus.Ast
 
 import Data.Functor (void)
@@ -67,6 +67,7 @@ unifyRS t1_ t2_ =
       (TPar _ t1, _) -> unifyRS t1 t2
       (_, TPar _ t2) -> unifyRS t1 t2
       (TList _ t1, TList _ t2) -> unifyRS t1 t2
+      (TArray _ l1 t1, TArray _ l2 t2) | l1 == l2 -> unifyRS t1 t2
       (TUnknown _ v, t) -> bindVar v t
       (t, TUnknown _ v) -> bindVar v t
       (TArrow _ t1 t2, TArrow _ t1' t2') -> do
@@ -103,7 +104,10 @@ decToRS (DecAnno _ n t) (env, s) =
       return (env' <> env, s)
 decToRS (Dec _ n _ _) (env, s) =
   case lookup n env of
-    Just t -> return (env, s)
+    Just t ->
+      if isUnknown t
+        then fail $ "duplicated defined " ++ show n
+        else return (env, s)
     Nothing -> do
       let Right (t, s') = runRSF freshTypeUnkRS env s
       let env' = Map.fromList [(n, t)]
@@ -136,22 +140,23 @@ inferExprRS e@(EVar _ x) =
       Nothing -> fail $ "Unbound variable: " ++ show x
       Just t -> return $ addType t e
 inferExprRS (EList a exprs) =
-  let
-    -- aux :: Expr a -> (Subst, [Expr (a, Type ())]) -> Result (Subst, [Expr (a, Type ())])
-    aux :: Expr a -> [Expr (a, Type ())] -> RSF TypeEnv Subst [Expr (a, Type ())]
-    aux expr acc = do
-      expr' <- inferExprRS expr
-      s20 <- get
-      -- check if type same as previous
-      case acc of
-        (x:_) -> unifyRS (getType x) (getType expr')
-        []    -> modify id
-      finalSub <- get
-      return $ fmap (applySubM finalSub) (expr' : acc)
-  in do
+  do
     exprs' <- foldrM aux [] exprs
     t <- maybe freshTypeUnkRS (return . getType) $ listToMaybe exprs'
-    return $ EList (a, TList () t) exprs'
+    return $ EList (a, TArray () (length exprs') t) exprs'
+  where
+    -- aux :: Expr a -> (Subst, [Expr (a, Type ())]) -> Result (Subst, [Expr (a, Type ())])
+    aux :: Expr a -> [Expr (a, Type ())] -> RSF TypeEnv Subst [Expr (a, Type ())]
+    aux expr acc =
+      do
+        expr' <- inferExprRS expr
+        s20 <- get
+        -- check if type same as previous
+        case acc of
+          (x:_) -> unifyRS (getType x) (getType expr')
+          []    -> modify id
+        finalSub <- get
+        return $ fmap (applySubM finalSub) (expr' : acc)
 inferExprRS (ELetIn a decs body) =
   do
     (decs', body') <- withDecsRS decs miniworld
@@ -208,33 +213,32 @@ inferExprRS expr =
     return $ addType t expr
 
 inferDecsRS :: [Dec a] -> RSF TypeEnv Subst [Dec (a, Type ())]
-inferDecsRS = foldlM aux []
+inferDecsRS = mapRSF (\(ds, s) -> (fmap (applySubM s) ds, s)) . foldMaprM aux
   where
-    aux :: [Dec (a, Type ())] -> Dec a -> RSF TypeEnv Subst [Dec (a, Type ())]
-    aux decs (Dec a name args body) =
+    aux :: Dec a -> RSF TypeEnv Subst [Dec (a, Type ())]
+    aux (Dec a name args body) =
       do
         bodyType <- freshTypeUnkRS
-        argWithTypes <- magic args
+
+        argWithTypes <- foldMapM magic args
         let funcType = foldr (TArrow ()) bodyType (map getType argWithTypes)
         let innerEnv = argToEnv argWithTypes
         body' <- withRSF (\r s -> (innerEnv <> r, s)) (inferExprRS body)
-        let bodyType' = getType body'
-        unifyRS bodyType' bodyType
+        unifyRS (getType body') bodyType
+
         prefinalType <- asks (fromJust . lookup name)
         unifyRS prefinalType funcType
+
         let finalName = addType (TUnit ()) name
         let finalDec = Dec (a, funcType) finalName argWithTypes body'
         currSub <- get
-        return $ map (applySubM currSub) (finalDec : decs)
-    aux microencourage _ = return microencourage
-    magic :: [Argument a] -> RSF TypeEnv Subst [Argument (a, Type ())]
-    magic = foldrM aux []
-      where
-        aux :: Argument a -> [Argument (a, Type ())]  -> RSF TypeEnv Subst [Argument (a, Type ())]
-        aux arg args = do
-          t <- freshTypeUnkRS
-          let arg' = addType t arg
-          return (arg' : args)
+        return [finalDec]
+    aux microencourage = return []
+    magic :: Argument a -> RSF TypeEnv Subst ([Argument (a, Type ())])
+    magic arg =
+      do
+        t <- freshTypeUnkRS
+        return $ [addType t arg]
 
 inferDecs :: (TypeEnv, Subst) -> [Dec a] -> Result [Dec (a, Type ())]
 inferDecs (env, sub) decs = evalRSF (inferDecsRS decs) env sub
