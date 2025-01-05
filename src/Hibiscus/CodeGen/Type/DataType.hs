@@ -16,6 +16,7 @@ data DataType
   | DTypeFloat Int -- size
   | DTypeVector Int DataType -- size, type
   | DTypeMatrix Int DataType -- col size, col type
+  | DTypeLengthUnknownArray DataType -- HACK:
   | DTypeArray Int DataType -- size, type
   | DTypePointer Asm.StorageClass DataType -- pointer type
   | DTypeStruct String [DataType] -- name, fields
@@ -31,6 +32,7 @@ instance Show DataType where
   show (DTypeFloat size) = "f" ++ show size
   show (DTypeVector size baseType) = "v" ++ show size ++ show baseType
   show (DTypeMatrix col baseType) = "mat" ++ show col ++ show baseType
+  show (DTypeLengthUnknownArray baseType) = "len_unknown_arr_" ++ show baseType
   show (DTypeArray size baseType) = "arr_" ++ show size ++ show baseType
   show (DTypePointer storage baseType) = "ptr_" ++ show baseType ++ "_" ++ show storage
   show (DTypeStruct name fields) = "struct_" ++ name ++ "_" ++ intercalate "_" (map show fields)

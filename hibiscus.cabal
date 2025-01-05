@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.35.2.
+-- This file has been generated from package.yaml by hpack version 0.37.0.
 --
 -- see: https://github.com/sol/hpack
 
@@ -26,7 +26,7 @@ library
       Hibiscus.TypeInfer
   other-modules:
       Hibiscus.CodeGen.GenExpr
-      Hibiscus.CodeGen.Type.Bulitin
+      Hibiscus.CodeGen.Type.Builtin
       Hibiscus.CodeGen.Util
       Hibiscus.TypeInfer.RSF
       Hibiscus.TypeInfer.Type4plus
