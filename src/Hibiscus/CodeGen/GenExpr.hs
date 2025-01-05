@@ -70,7 +70,8 @@ insertResultSt key maybeER = do
       case maybeER of
         Nothing -> generateEntrySt key
         Just value -> do
-          modify (\s -> s{idMap = Map.insert key value $ idMap s})
+          traceM $ "[WARN] Deprecated: Stoping using insertResultSt to update idMap"
+          insertResult' key value
           return value
 
 insertResult' :: ResultType -> ExprReturn -> State LanxSt ()
@@ -235,7 +236,7 @@ generateBinOpSt v1@(e1, t1) op v2@(e2, t2) =
 -- fold aux used by generateExprSt (Ast.ELetIn _ decs e)
 generateDecSt :: Dec -> State LanxSt (Instructions, VariableInst, StackInst)
 generateDecSt (Ast.DecAnno _ name t) = return mempty
-generateDecSt (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
+generateDecSt (Ast.Dec (_, t) (Ast.Name _ name) [] e) =
   do
     let varType = typeConvert t
     (typeId, inst1) <- generateTypeSt varType
@@ -244,7 +245,7 @@ generateDecSt (Ast.Dec (_, t) (Ast.Name (_, _) name) [] e) =
     -- _ <- insertResultSt (ResultVariable (env_state2, BS.unpack name, varType)) (Just result)
     env_state3 <- gets env 
     -- idMap should not have insert key
-    _ <- insertResultSt (ResultVariableValue (env_state3, BS.unpack name, varType)) (Just result)
+    _ <- insertResult' (ResultVariableValue (env_state3, BS.unpack name, varType)) result
     return (inst1 +++ inst2, varInst, stackInst)
 
 -- this function is aux of generateFunctionSt
@@ -279,7 +280,7 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name _ name) args e) =
 
     let funcId = Asm.IdName (intercalate "_" $ BS.unpack name : map show argsType)
     let result = ExprApplication (CustomFunction funcId (BS.unpack name)) (returnType, argsType) []
-    er <- insertResultSt (ResultVariableValue (env_state1, BS.unpack name, functionType)) (Just result)
+    er <- insertResult' (ResultVariableValue (env_state1, BS.unpack name, functionType)) result
 
     -- traceM (show (BS.unpack name,env_state1,  functionType, er))
 
