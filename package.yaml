@@ -38,3 +38,13 @@ executable:
     - base
     - bytestring
     - hibiscus
+
+tests:
+  test:
+    main: test.hs
+    source-dirs:
+      - test
+    dependencies:
+      - base
+      - bytestring
+      - hibiscus
