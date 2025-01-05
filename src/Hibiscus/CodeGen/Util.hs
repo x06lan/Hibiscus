@@ -4,8 +4,8 @@
 
 module Hibiscus.CodeGen.Util where
 
-import Hibiscus.CodeGen.Type.Bulitin
 import Control.Exception (handle)
+import Hibiscus.CodeGen.Type.Builtin
 
 -- type infer
 import Control.Monad.State.Lazy
@@ -17,9 +17,9 @@ import Data.STRef (newSTRef)
 import Debug.Trace (trace)
 import qualified Hibiscus.Asm as Asm
 import qualified Hibiscus.Ast as Ast
-import Hibiscus.CodeGen.Types
 import Hibiscus.CodeGen.Type.DataType (DataType)
 import qualified Hibiscus.CodeGen.Type.DataType as DT
+import Hibiscus.CodeGen.Types
 import qualified Hibiscus.TypeInfer as TI
 import Hibiscus.Util (foldMaplM, foldMaprM, replace)
 
@@ -110,20 +110,23 @@ getNameAndDType (Ast.Argument (_, t) (Ast.Name _ name)) = (BS.unpack name, typeC
 
 typeConvert :: Ast.Type () -> DataType
 typeConvert t@(Ast.TVar _ (Ast.Name _ n)) =
-  case getBulitinType (BS.unpack n) of
+  case getBuiltinType (BS.unpack n) of
     Just x -> x
     Nothing -> error ("Not implemented" ++ show t)
 typeConvert (Ast.TPar _ t) = typeConvert t
-typeConvert t@(Ast.TArrow _ t1 t2) = 
+typeConvert t@(Ast.TArrow _ t1 t2) =
   let
     processArrow :: Ast.Type () -> ([DataType], DataType)
     processArrow (Ast.TArrow _ t1' t2') =
       let (args, ret) = processArrow t2'
-        in (typeConvert t1' : args, ret)
+       in (typeConvert t1' : args, ret)
     processArrow t = ([], typeConvert t)
 
     (argTypes, returnType) = processArrow t
-  in DT.DTypeFunction returnType argTypes
+   in
+    DT.DTypeFunction returnType argTypes
 typeConvert (Ast.TApp _ t) = error ("Not implemented App" ++ show t)
 typeConvert (Ast.TUnit _) = DT.DTypeVoid
+typeConvert (Ast.TArray _ size t) = DT.DTypeArray size (typeConvert t)
+typeConvert (Ast.TList _ t) = DT.DTypeLengthUnknownArray (typeConvert t)
 typeConvert t = error ("Not implemented? " ++ show t)

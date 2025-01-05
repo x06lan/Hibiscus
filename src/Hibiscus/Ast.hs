@@ -25,10 +25,10 @@ data Type a
   | TUnit a
   | TList a (Type a)
   | TArrow a (Type a) (Type a)
-  -- below only for inference
-  | TUnknown a MetaSymbol
-  -- below only for CodeGen
-  | TArray a Int (Type a)
+  | -- below only for inference
+    TUnknown a MetaSymbol
+  | -- below only for CodeGen
+    TArray a Int (Type a)
   deriving (Functor, Foldable)
 
 isUnknown :: Type a -> Bool
@@ -52,7 +52,7 @@ instance Show (Type a) where
   show (TList _ t) = "List " ++ show t
   show (TArrow _ ta tb) = "(" ++ show ta ++ " -> " ++ show tb ++ ")"
   show (TUnknown _ s) = "?" ++ show s
-  show (TArray _ size t) = "Array " ++ show t ++ ", " ++ show size
+  show (TArray _ size t) = unwords ["Array", show t, show size]
 
 data Argument a
   = Argument a (Name a)
