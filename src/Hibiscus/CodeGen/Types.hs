@@ -89,7 +89,7 @@ data BaseFunctionType
 
 data FunctionType
   = BaseFunction BaseFunctionType
-  | IfElseApplication VeryImportantTuple VeryImportantTuple VeryImportantTuple-- if, then, else
+  | IfElseApplication Expr Expr Expr  -- if, then, else
   deriving (Show)
 
 data ExprReturn
