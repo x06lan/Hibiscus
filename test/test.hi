@@ -1,0 +1,36 @@
+Vec4 :: Float -> Float -> Float -> Float -> Vec4 
+Vec2 :: Float -> Float -> Vec2
+-- Get :: Vec4 -> Int -> Float
+extract_0 :: Vec2 ->  Float
+extract_1 :: Vec2 ->  Float
+
+add :: Float -> Float -> Float
+add a b = a + b;
+
+sub :: Float -> Float -> Float
+sub a b = add a (-b);
+
+main :: Vec2 -> Vec4
+main uv = 
+    let 
+        -- d = (+) 0.5;
+        -- d = add 0.4 0.5;
+
+        x = extract_0 uv;
+        y = extract_1 uv;
+
+        d = if (x > y) then
+            if (x > 0.5) then
+                add
+            else
+                (+)
+        else
+            sub;
+        t = if (x > 0.5) then
+            0.5
+        else
+            0.4
+        d1 = d t;
+        d2 = d1 y;
+    in
+        Vec4 x y d3 1.0;
