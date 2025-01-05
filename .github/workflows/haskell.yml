@@ -28,7 +28,8 @@ jobs:
           ${{ runner.os }}-build-${{ env.cache-name }}-
           ${{ runner.os }}-build-
           ${{ runner.os }}-
-
+    - name: PWD 
+      run: ls *
     - name: Install dependencies
       run: |
         cabal update
@@ -48,7 +49,5 @@ jobs:
         cabal-version: '3.2'
     - name: Build
       run: cabal build --enable-tests --enable-benchmarks all
-    - name: PWD
-      run: pwd
     - name: Run tests
       run: cabal test all
