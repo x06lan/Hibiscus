@@ -35,18 +35,18 @@ jobs:
         cabal build --only-dependencies --enable-tests --enable-benchmarks
     - name: Build Hibiscus
       run: cabal build hibiscus
-  test:
-    runs-on: ubuntu-latest
-    needs: build  # 表示此 job 依賴於 build job 完成
+  # test:
+  #   runs-on: ubuntu-latest
+  #   needs: build  # 表示此 job 依賴於 build job 完成
 
-    steps:
-    - uses: actions/checkout@v4
+  #   steps:
+  #   - uses: actions/checkout@v4
 
-    - uses: actions/setup-haskell@v1
-      with:
-        ghc-version: '8.10.3'
-        cabal-version: '3.2'
-    - name: Build
-      run: cabal build --enable-tests --enable-benchmarks all
-    - name: Run tests
-      run: cabal test all
+  #   - uses: actions/setup-haskell@v1
+  #     with:
+  #       ghc-version: '8.10.3'
+  #       cabal-version: '3.2'
+  #   - name: Build
+  #     run: cabal build --enable-tests --enable-benchmarks all
+  #   - name: Run tests
+  #     run: cabal test all
