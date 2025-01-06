@@ -10,7 +10,6 @@ import Hibiscus.Parsing.Lexer (runAlex)
 import Hibiscus.Parsing.Parser (parseHibiscus)
 import Hibiscus.TypeInfer (infer)
 import System.Environment (getArgs)
-import Control.Exception (assert)
 
 main :: IO ()
 main = do
