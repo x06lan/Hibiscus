@@ -29,7 +29,7 @@ main uv =
                 if (x > 0.5) then
                     add
                 else
-                    (+)
+                    sub
         else
             sub;
 
