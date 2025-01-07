@@ -62,10 +62,11 @@ executable hibiscus
     , hibiscus
   default-language: Haskell2010
 
-test-suite test
+test-suite simple
   type: exitcode-stdio-1.0
-  main-is: test.hs
+  main-is: simple.hs
   other-modules:
+      TestEverything
       Paths_hibiscus
   hs-source-dirs:
       test

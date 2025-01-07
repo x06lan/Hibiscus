@@ -40,8 +40,8 @@ executable:
     - hibiscus
 
 tests:
-  test:
-    main: test.hs
+  simple:
+    main: simple.hs
     source-dirs:
       - test
     dependencies:
