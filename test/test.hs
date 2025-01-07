@@ -17,4 +17,7 @@ main = do
   let parseResult = fromRight (error "parse error") $ runAlex content parseHibiscus
   let inferResult = fromRight (error "infer error") $ infer parseResult
   let asmResult = generate defaultConfig inferResult
+  print parseResult
+  print inferResult
+  print asmResult
   return ()
