@@ -32,6 +32,7 @@ import Data.Type.Equality (apply)
 import Control.Exception (handle)
 import Control.Monad (when)
 import Control.Arrow (ArrowApply(app))
+import System.IO.Error (resourceVanishedErrorType)
 
 
 ----- Below are used by a lot of place
@@ -246,41 +247,18 @@ generateBinOpSt v1@(e1, t1) op v2@(e2, t2) =
 ----- Below are directly used by generateExprSt
 
 -- fold aux used by generateExprSt (Ast.ELetIn _ decs e)
-generateDecSt :: Dec -> State LanxSt (Instructions, VariableInst, StackInst)
-generateDecSt (Ast.DecAnno _ name t) = return mempty
+generateDecSt :: Dec -> State LanxSt VeryImportantTuple
+generateDecSt (Ast.DecAnno _ name t) = error "Infer type should not pass DecAnno"
 generateDecSt (Ast.Dec (_, t) (Ast.Name _ name) [] e) =
   do
     let varType = typeConvert t
     (typeId, inst1) <- generateTypeSt varType
     (result, inst2, varInst, stackInst) <- generateExprSt e
-    -- env_state2 <- gets env
-    -- _ <- insertResultSt (ResultVariable (env_state2, BS.unpack name, varType)) (Just result)
     env_state3 <- gets env 
     -- idMap should not have insert key
     insertResult' (ResultVariableValue (env_state3, BS.unpack name, varType)) result
-    return (inst1 +++ inst2, varInst, stackInst)
-
--- this function is aux of generateFunctionSt
-generateFunctionParamSt :: [Ast.Argument (L.Range, Type)] -> State LanxSt (Instructions, [Asm.Instruction])
-generateFunctionParamSt args =
-  let
-    aux :: (String, DataType) -> State LanxSt (Instructions, Asm.Instruction)
-    aux (name, dType) = do
-      (typeId, inst1) <- generateTypeSt (DT.DTypePointer Asm.Function dType)
-      env_s' <- gets env
-      _er <- findResultOrGenerateEntry (ResultVariable (env_s', name, dType))
-      let (ExprResult (id, _)) = _er
-      let paramInst = returnedInstruction id (Asm.OpFunctionParameter typeId)
-      return (inst1, paramInst)
-    makeAssociative (is, i) = (is, [i]) -- it's a anti-optimised move, but making less mentally taxing
-   in
-    do
-      foldMaplM (fmap makeAssociative . aux) . fmap getNameAndDType $ args
-
--- used by generateExprSt (Ast.EVar (_, t1) (Ast.Name (_, _) name))
-generateFunctionSt :: Instructions -> Dec -> State LanxSt (Asm.OpId, Instructions)
-generateFunctionSt inst (Ast.DecAnno _ name t) = return (Asm.IdName "", inst)
-generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name _ name) args e) =
+    return (result,inst1 +++ inst2, varInst, stackInst)
+generateDecSt (Ast.Dec (r1, t) (Ast.Name r2 name) args e) =
   do
     env_state0 <- gets env
     let functionType = typeConvert t
@@ -303,7 +281,8 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name _ name) args e) =
 
     labelId <- nextOpId
 
-    (er, inst3, varInst, exprInst) <- generateExprSt e
+    (er, inst3, varInst, exprInst) <- generateExprSt e >>= applyExpr
+    traceM ("generateFunctionSt " ++ show er)
     let ExprResult (resultId, _) = er
 
     modify (\s -> s{env = env_state0})
@@ -312,18 +291,35 @@ generateFunctionSt inst (Ast.Dec (_, t) (Ast.Name _ name) args e) =
 
     let funcInst =
           FunctionInst
-            { begin = [commentInstruction $ "function " ++ BS.unpack name, returnedInstruction funcId (Asm.OpFunction returnTypeId Asm.None typeId)]
+            { begin = [commentInstruction $ "function " ++ BS.unpack name, returnedInstruction funcId (Asm.OpFunction returnTypeId Asm.Pure typeId)]
             , parameter = paramInst
             , label = [returnedInstruction labelId Asm.OpLabel]
             , variable = varInst
             , body = exprInst ++ [noReturnInstruction $ Asm.OpReturnValue resultId]
             , end = [noReturnInstruction Asm.OpFunctionEnd]
             }
-    let inst4 = inst +++ inst1 +++ inst2 +++ inst3
+    let inst4 = inst1 +++ inst2 +++ inst3
     let inst5 = inst4{functionFields = functionFields inst4 ++ [funcInst]}
-    -- state' <- get
-    -- return $ error (show $ idMap state')
-    return (funcId, inst5)
+    return (result, inst5, [], [])
+
+-- this function is aux of generateFunctionSt
+generateFunctionParamSt :: [Ast.Argument (L.Range, Type)] -> State LanxSt (Instructions, [Asm.Instruction])
+generateFunctionParamSt args =
+  let
+    aux :: (String, DataType) -> State LanxSt (Instructions, Asm.Instruction)
+    aux (name, dType) = do
+      (typeId, inst1) <- generateTypeSt (DT.DTypePointer Asm.Function dType)
+      env_s' <- gets env
+      _er <- findResultOrGenerateEntry (ResultVariable (env_s', name, dType))
+      let (ExprResult (id, _)) = _er
+      traceM ("generateFunctionParamSt " ++ show (env_s', name, dType))
+      let paramInst = returnedInstruction id (Asm.OpFunctionParameter typeId)
+      return (inst1, paramInst)
+    makeAssociative (is, i) = (is, [i]) -- it's a anti-optimised move, but making less mentally taxing
+   in
+    do
+      foldMaplM (fmap makeAssociative . aux) . fmap getNameAndDType $ args
+
 
 -- used by generateExprSt literals
 generateConstSt :: Asm.Literal -> State LanxSt VeryImportantTuple
@@ -417,7 +413,7 @@ appendApplication (ExprResult x) arg =
 handleIfElseSt_aux1::[Variable] -> VeryImportantTuple -> State LanxSt VeryImportantTuple
 handleIfElseSt_aux1  args (er,inst,varInst,stackInst) =
   do
-    traceM ("handleIfElseSt_aux1 " ++ show er)
+    -- traceM ("handleIfElseSt_aux1 " ++ show er)
     let er' = appendApplication er args
     applyExpr (er',inst,varInst,stackInst)
 
@@ -508,41 +504,29 @@ generateExprSt (Ast.EList _ es) =
 generateExprSt (Ast.EVar (_, t1) (Ast.Name _ bsname)) =
   let
     name = BS.unpack bsname
+    dType = typeConvert t1
   in
   do
     state <- get
-    let dType = typeConvert t1
     let k = ResultVariableValue (env state, name, dType)
     case findResult state k of
       Just er -> return (er, mempty, [], [])
-      Nothing ->
-        case dType of
-          DT.DTypeFunction returnType args ->
-            case getBulitinFunctionType name of
-              Just funcTy ->
-                do
-                  let exprReturn = ExprApplication (BaseFunction funcTy) (returnType, args) []
-                  return (exprReturn, mempty, [], [])
-              Nothing ->
-                do
-                  state1 <- get
-                  let dec = fromMaybe (error (name ++ show args)) (findDec (decs state1) name Nothing)
-                  (id, inst1) <- generateFunctionSt emptyInstructions dec
-                  -- state2 <- get
+      Nothing -> 
+          case findDec (decs state) name dType of
+            Just dec -> do
+              result <- generateDecSt dec
+              return result
+            Nothing -> case getBulitinFunctionType name of 
+              Just funcTy -> do
+                let exprReturn = ExprApplication (BaseFunction funcTy) (DT.DTypeUnknown, []) []
+                return (exprReturn, mempty, [], [])
+              Nothing -> do
+                let er = fromMaybe (error (show (name, dType))) (findResult state (ResultVariable (env state, name, dType)))
+                let (ExprResult (varId, vdType)) = er
+                id <- nextOpId
+                let stackInst = [returnedInstruction id (Asm.OpLoad (searchTypeId state vdType) varId)]
+                return (ExprResult (id, vdType), mempty, [], stackInst)
 
-                  -- doTrace ("after "++ show (env state2)++show (findResult state2 (ResultVariableValue (env state2, name, DTypeFunction returnType args))))
-                  -- doTrace (show (idMap state2))
-                  return (ExprApplication (BaseFunction (CustomFunction id name)) (returnType, args) [], inst1, [], [])
-          _ ->
-            do
-              let ExprResult (varId, varType) = fromMaybe (error ("cant find var:" ++ show (env state, name, dType))) (findResult state (ResultVariable (env state, name, dType)))
-              er <- findResultOrGenerateEntry (ResultVariableValue (env state, name, dType))
-              let ExprResult (valueId, _) = er
-              searchTypeId_state2_varType <- gets (\s -> searchTypeId s varType) -- FIXME: please rename this
-
-              let er = ExprResult (valueId, varType)
-              let inst = returnedInstruction valueId (Asm.OpLoad searchTypeId_state2_varType varId)
-              return (er, mempty, [], [inst])
 generateExprSt (Ast.EString _ _) = error "String"
 generateExprSt (Ast.EUnit _) = error "Unit"
 generateExprSt (Ast.EApp _ e1 e2) =
@@ -589,7 +573,8 @@ generateExprSt (Ast.ELetIn _ decs e) =
     modify (\s -> s{env = envs ++ [("letIn", DT.DTypeVoid)]})
     -- traceM (show decs)
     -- return $ error (show decs)
-    (inst, varInst, stackInst) <- foldMaplM generateDecSt decs
+    let makeAssociative (a, b, c, d) = ([a], b, c, d)
+    (_,inst, varInst, stackInst) <- foldMaplM (fmap makeAssociative . generateDecSt) decs
     (result, inst1, varInst2, stackInst1) <- generateExprSt e
     modify (\s -> s{env = envs})
     return (result, inst +++ inst1, varInst ++ varInst2, stackInst ++ stackInst1)

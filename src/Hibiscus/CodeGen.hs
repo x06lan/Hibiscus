@@ -160,7 +160,7 @@ generate config decs = evalState aux noMatterState
   where
     noMatterState = undefined
     aux = do
-      let mainDec = fromJust $ findDec decs (entryPoint config) Nothing
+      let mainDec = fromJust $ findDec decs (entryPoint config) DT.DTypeUnknown
       inst <- generateInitSt config decs
       inst' <- generateMainFunctionSt inst config mainDec
       -- (state3, _, inst2) = generateType initState (DTypePointer Input vector2)

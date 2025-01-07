@@ -64,20 +64,20 @@ searchTypeId s dt =
       _ -> error (show dt ++ " type not found")
     Nothing -> error (show dt ++ " type not found")
 
-findDec' :: String -> Maybe FunctionSignature -> [Dec] -> Maybe Dec
+findDec' :: String -> DataType -> [Dec] -> Maybe Dec
 findDec' name maybeFS = find' aux
  where
   aux = case maybeFS of
-    Nothing ->
-      ( \case
-          Ast.Dec _ (Ast.Name _ n) _ _ -> n == BS.pack name
-          _ -> False
-      )
-    Just (_, argTs) ->
+    DT.DTypeFunction argTs c ->
       ( \case
           Ast.Dec _ (Ast.Name _ n) args' _ ->
             let argTs' = map (typeConvert . TI.getType) args'
              in n == BS.pack name && argTs == argTs
+          _ -> False
+      )
+    dType ->
+      ( \case
+          Ast.Dec _ (Ast.Name _ n) _ _ -> n == BS.pack name
           _ -> False
       )
   find' :: (a -> Bool) -> [a] -> Maybe a
@@ -89,7 +89,7 @@ findDec' name maybeFS = find' aux
       _ -> error "found multiple result, perhaps you want to use `find`"
 
 -- search dec by name and function signature
-findDec :: [Dec] -> String -> Maybe FunctionSignature -> Maybe Dec
+findDec :: [Dec] -> String -> DataType -> Maybe Dec
 findDec decs n mfs = findDec' n mfs decs
 
 dtypeof :: Asm.Literal -> DataType
