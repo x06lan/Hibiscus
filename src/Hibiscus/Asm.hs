@@ -32,6 +32,13 @@ data OpId
   = IdName String
   | Id Int
 
+-- TODO: Improve type safety of OpId
+type TypeId = OpId
+type PointerTypeId = OpId
+type LabelId = OpId
+type ValueId = OpId
+type PointerId = OpId
+
 instance Show OpId where
   show (IdName s) = "%" ++ s
   show (Id i) = "%" ++ show i
