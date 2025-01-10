@@ -1,0 +1,18 @@
+-- Builtin functions BEGIN --
+Vec4 :: Float -> Float -> Float -> Float -> Vec4 
+Vec2 :: Float -> Float -> Vec2
+extract_0 :: Vec2 ->  Float
+extract_1 :: Vec2 ->  Float
+-- Builtin functions END --
+
+add :: Float -> Float -> Float
+add a b = a + b;
+
+main :: Vec2 -> Vec4
+main uv =
+    let
+        u = extract_0 uv
+        v = extract_1 uv
+        usumv = add u v
+    in
+    Vec4 u v usumv 1.0;
