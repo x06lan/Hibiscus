@@ -53,8 +53,7 @@ generateInitSt cfg decs =
             { headerFields = headInstruction
             , nameFields = [commentInstruction "Name fields"]
             , uniformsFields = [commentInstruction "uniform fields"]
-            , typeFields = [commentInstruction "pe fields"]
-            , constFields = [commentInstruction "Const fields"]
+            , typeFields = [commentInstruction "type fields"]
             , functionFields = []
             }
     return inst
@@ -76,7 +75,7 @@ generateUniformsSt_aux1 (name, dType, storage, location) =
           inst1
             { nameFields = nameFields inst1 ++ nameInstruction
             , uniformsFields = uniformsFields inst1 ++ uniformsInstruction
-            , constFields = constFields inst1 ++ variableInstruction
+            , typeFields = typeFields inst1 ++ variableInstruction
             }
     return (inst1', [id]) -- it's a anti-optimised move, but making less mentally taxing
 
@@ -150,7 +149,6 @@ instructionsToString inst =
             ++ nameFields inst
             ++ uniformsFields inst
             ++ typeFields inst
-            ++ constFields inst
             ++ concatMap flattenFunctionInst (functionFields inst)
     let codeText = intercalate "\n" (map show code)
     codeText

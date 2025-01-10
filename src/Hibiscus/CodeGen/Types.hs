@@ -169,7 +169,6 @@ data Instructions = Instructions
   , nameFields :: [Asm.Instruction]
   , uniformsFields :: [Asm.Instruction]
   , typeFields :: [Asm.Instruction]
-  , constFields :: [Asm.Instruction]
   , functionFields :: [FunctionInst] -- [function]
   }
   deriving (Show)
@@ -184,8 +183,8 @@ instance Monoid Instructions where
   mempty = emptyInstructions
 
 (+++) :: Instructions -> Instructions -> Instructions
-(Instructions h1 n1 u1 t1 c1 f1) +++ (Instructions h2 n2 u2 t2 c2 f2) =
-  Instructions (h1 `merge` h2) (n1 ++ n2) (u1 ++ u2) (t1 ++ t2) (c1 ++ c2) (f1 ++ f2)
+(Instructions h1 n1 u1 t1 f1) +++ (Instructions h2 n2 u2 t2 f2) =
+  Instructions (h1 `merge` h2) (n1 ++ n2) (u1 ++ u2) (t1 ++ t2) (f1 ++ f2)
  where
   mergeMaybe h Nothing = h
   mergeMaybe Nothing h = h
@@ -211,6 +210,5 @@ emptyInstructions =
     , nameFields = []
     , uniformsFields = []
     , typeFields = []
-    , constFields = []
     , functionFields = []
     }

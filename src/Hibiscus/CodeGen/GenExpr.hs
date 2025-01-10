@@ -333,8 +333,14 @@ generateConstSt v = do
           (typeId, typeInst) <- generateTypeSt dtype
           er <- findResultOrGenerateEntry (ResultConstant v)
           let (ExprResult (constId, dType)) = er
-          let constInstruction = [returnedInstruction constId (Asm.OpConstant typeId v)]
-          let inst = typeInst{constFields = constFields typeInst ++ constInstruction}
+          let constInstruction = case v of
+                Asm.LInt _ -> [returnedInstruction constId (Asm.OpConstant typeId v)]
+                Asm.LUint _ -> [returnedInstruction constId (Asm.OpConstant typeId v)]
+                Asm.LFloat _ -> [returnedInstruction constId (Asm.OpConstant typeId v)]
+                Asm.LBool t_f | t_f==True -> [returnedInstruction constId (Asm.OpConstantTrue typeId)]
+                Asm.LBool t_f | t_f==False-> [returnedInstruction constId (Asm.OpConstantFalse typeId)]
+                _ -> error ("Not supported"++ show v)
+          let inst = typeInst{typeFields = typeFields typeInst ++ constInstruction}
           return (ExprResult (constId, dtype), inst, [], [])
 
 ----- Below are use by generateExprSt (Ast.EApp _ e1 e2)
@@ -514,7 +520,11 @@ generateExprSt (Ast.EVar (_, t1) (Ast.Name _ bsname)) =
       Nothing -> 
           case findDec (decs state) name dType of
             Just dec -> do
+              old_env <- gets env
+              -- set global env
+              modify (\s -> s{env = [global]})
               result <- generateDecSt dec
+              modify (\s -> s{env = old_env})
               return result
             Nothing -> case getBulitinFunctionType name of 
               Just funcTy -> do
@@ -548,10 +558,10 @@ generateExprSt (Ast.EApp _ e1 e2) =
         return (r3, inst1 +++ inst2, varInst1 ++ varInst2, stackInst1 ++ stackInst2)
     return result
 
-generateExprSt (Ast.EIfThenElse _ cond thenE elseE) =
-    do
-      let result =ExprApplication (IfElseApplication cond thenE elseE) (DT.DTypeUnknown, []) []
-      return (result, mempty, [], [])
+generateExprSt (Ast.EIfThenElse (_,t) cond thenE elseE) =
+  do
+    let result =ExprApplication (IfElseApplication cond thenE elseE) (DT.DTypeUnknown, []) []
+    return (result, mempty, [], [])
 generateExprSt (Ast.ENeg _ e) =
   do
     (_er, inst1, varInst1, stackInst1) <- generateExprSt e
